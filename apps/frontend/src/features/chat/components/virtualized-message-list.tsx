@@ -61,7 +61,7 @@ function VirtuosoScrollerComponent(
 		<div
 			ref={ref}
 			className={cn(
-				"flex-1 overflow-y-auto overflow-x-hidden pr-1 sm:pr-2",
+				"flex-1 overflow-y-auto overflow-x-hidden pr-0.5 sm:pr-2",
 				className,
 			)}
 			{...rest}
@@ -79,7 +79,7 @@ function VirtuosoListComponent(
 	return (
 		<div
 			ref={ref}
-			className={cn("flex flex-col px-3 py-4 sm:px-6 lg:px-8", className)}
+			className={cn("flex flex-col px-1.5 py-4 sm:px-6 lg:px-8", className)}
 			{...rest}
 		/>
 	);
