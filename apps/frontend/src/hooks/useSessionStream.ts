@@ -3,6 +3,7 @@ import {
 	useCallback,
 	useEffect,
 	useLayoutEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -111,6 +112,17 @@ const statusFromSessionState = (
 		return "error";
 	}
 	return "ready";
+};
+
+const estimateTokenCount = (text: string): number => {
+	const normalized = text.trim();
+	if (!normalized) {
+		return 0;
+	}
+
+	const charEstimate = Math.ceil(normalized.length / 4);
+	const wordEstimate = normalized.split(/\s+/).filter(Boolean).length;
+	return Math.max(charEstimate, wordEstimate);
 };
 
 export function useSessionStream({
@@ -280,6 +292,44 @@ export function useSessionStream({
 		onMessagesChange?.(messages);
 	}, [messages, onMessagesChange]);
 
+	const estimatedTokenUsage = useMemo(() => {
+		const inputTokens = messages
+			.filter((message) => message.role === "user")
+			.reduce(
+				(sum, message) => sum + estimateTokenCount(message.content ?? ""),
+				0,
+			);
+		const outputTokens = messages
+			.filter((message) => message.role === "assistant")
+			.reduce(
+				(sum, message) => sum + estimateTokenCount(message.content ?? ""),
+				0,
+			);
+
+		return {
+			input_other: inputTokens,
+			input_cache_read: 0,
+			input_cache_creation: 0,
+			output: outputTokens,
+			inputTokens,
+			outputTokens,
+		};
+	}, [messages]);
+
+	const estimatedContextUsage = useMemo(() => {
+		const total =
+			estimatedTokenUsage.input_other +
+			estimatedTokenUsage.input_cache_read +
+			estimatedTokenUsage.input_cache_creation +
+			estimatedTokenUsage.output;
+		return total > 0 ? Math.min(1, total / 64000) : 0;
+	}, [estimatedTokenUsage]);
+
+	const currentStep = useMemo(
+		() => messages.filter((message) => message.role === "assistant").length,
+		[messages],
+	);
+
 	const sendMessage = useCallback(
 		async (text: string) => {
 			if (!sessionId) {
@@ -314,9 +364,9 @@ export function useSessionStream({
 		sessionStatus,
 		isReplayingHistory,
 		isAwaitingFirstResponse,
-		contextUsage: 0,
-		tokenUsage: null,
-		currentStep: 0,
+		contextUsage: estimatedContextUsage,
+		tokenUsage: estimatedTokenUsage,
+		currentStep,
 		isConnected,
 		sendMessage,
 		respondToApproval: async () => undefined,
