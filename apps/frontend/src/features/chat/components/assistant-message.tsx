@@ -27,8 +27,8 @@ import {
 	ToolMediaPreview,
 	ToolOutput,
 } from "@ai-elements";
-import { BrainIcon, ChevronRightIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BrainIcon, ChevronRightIcon, Loader2Icon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { LiveMessage } from "@/hooks/types";
 import type { ApprovalResponseDecision } from "@/hooks/wireTypes";
 import { cn } from "@/lib/utils";
@@ -89,6 +89,29 @@ export function AssistantMessage({
 	return content;
 }
 
+function StreamingPlaceholder() {
+	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+	useEffect(() => {
+		const startedAt = Date.now();
+		const interval = window.setInterval(() => {
+			setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+		}, 1000);
+
+		return () => window.clearInterval(interval);
+	}, []);
+
+	return (
+		<div className="flex items-center gap-2 text-sm text-muted-foreground">
+			<Loader2Icon className="size-4 animate-spin text-primary/80" />
+			<span>Thinking through the response...</span>
+			<span className="tabular-nums text-xs text-muted-foreground/80">
+				{elapsedSeconds}s
+			</span>
+		</div>
+	);
+}
+
 const renderAssistantText = (message: LiveMessage) => {
 	return (
 		<MessageContent className={assistantContentClass}>
@@ -104,13 +127,21 @@ const renderAssistantText = (message: LiveMessage) => {
 					/>
 				</div>
 				<div className="flex-1 min-w-0">
-					<MessageResponse
-						className="wrap-break-word"
-						mode={message.isStreaming ? "streaming" : "static"}
-						parseIncompleteMarkdown={Boolean(message.isStreaming)}
-					>
-						{message.content || "Thinking through the response..."}
-					</MessageResponse>
+					{message.content ? (
+						<MessageResponse
+							className="wrap-break-word"
+							mode={message.isStreaming ? "streaming" : "static"}
+							parseIncompleteMarkdown={Boolean(message.isStreaming)}
+						>
+							{message.content}
+						</MessageResponse>
+					) : message.isStreaming ? (
+						<StreamingPlaceholder />
+					) : (
+						<MessageResponse className="wrap-break-word" mode="static">
+							Thinking through the response...
+						</MessageResponse>
+					)}
 				</div>
 			</div>
 		</MessageContent>
