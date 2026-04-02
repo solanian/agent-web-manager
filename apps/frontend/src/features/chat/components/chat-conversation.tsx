@@ -112,11 +112,7 @@ export function ChatConversation({
 					<ConversationEmptyState
 						description=""
 						icon={<Loader2Icon className="size-6 animate-spin text-primary" />}
-						title={
-							isStartingEnvironment
-								? "Starting environment..."
-								: "Connecting to session..."
-						}
+						title={isStartingEnvironment ? "Starting environment..." : "Preparing response..."}
 					/>
 				) : emptyNoSessionState ? (
 					<ConversationEmptyState>

@@ -65,6 +65,8 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 		usedTokens !== undefined &&
 		maxTokens !== undefined;
 	const hasTabs = hasQueue || hasChanges || hasTodo;
+	const shouldShowActivity =
+		Boolean(activityStatus) && activityStatus?.status !== "connecting";
 
 	// Auto-open queue tab when first item is added
 	useEffect(() => {
@@ -85,7 +87,7 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 		setActiveTab((prev) => (prev === tab ? null : tab));
 	}, []);
 
-	if (!(hasTabs || activityStatus || hasContext || planMode)) return null;
+	if (!(hasTabs || shouldShowActivity || hasContext || planMode)) return null;
 
 	return (
 		<div
@@ -112,7 +114,7 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 
 			{/* ── Tab bar ── */}
 			<div className="flex items-center gap-1.5 px-1">
-				{activityStatus && (
+				{shouldShowActivity && activityStatus && (
 					<ToolbarActivityIndicator activity={activityStatus} />
 				)}
 

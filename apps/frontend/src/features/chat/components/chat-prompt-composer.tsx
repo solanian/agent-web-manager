@@ -268,9 +268,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 									!currentSession
 										? "Create a session to start..."
 										: isAwaitingIdle
-											? isReplayingHistory
-												? "Connecting..."
-												: "Starting environment..."
+											? "Please wait..."
 											: isStreaming
 												? "Add a follow-up message..."
 												: "Ask anything, / for commands, @ to mention files"
