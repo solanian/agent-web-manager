@@ -50,6 +50,7 @@ type AssistantMessageProps = {
 	onApprovalAction?: AssistantApprovalHandler;
 	canRespondToApproval: boolean;
 	blocksExpanded: boolean;
+	showPlaceholderActivity?: boolean;
 };
 
 export function AssistantMessage({
@@ -58,6 +59,7 @@ export function AssistantMessage({
 	onApprovalAction,
 	canRespondToApproval,
 	blocksExpanded,
+	showPlaceholderActivity = false,
 }: AssistantMessageProps) {
 	const content = useMemo(() => {
 		switch (message.variant) {
@@ -76,7 +78,7 @@ export function AssistantMessage({
 			case "thinking":
 				return renderThinkingMessage(message, blocksExpanded);
 			default:
-				return renderAssistantText(message);
+				return renderAssistantText(message, showPlaceholderActivity);
 		}
 	}, [
 		message,
@@ -84,6 +86,7 @@ export function AssistantMessage({
 		onApprovalAction,
 		canRespondToApproval,
 		blocksExpanded,
+		showPlaceholderActivity,
 	]);
 
 	return content;
@@ -112,7 +115,12 @@ function StreamingPlaceholder() {
 	);
 }
 
-const renderAssistantText = (message: LiveMessage) => {
+const renderAssistantText = (
+	message: LiveMessage,
+	showPlaceholderActivity = false,
+) => {
+	const isActivelyThinking = message.isStreaming || showPlaceholderActivity;
+
 	return (
 		<MessageContent className={assistantContentClass}>
 			<div className="flex items-start gap-2">
@@ -120,7 +128,7 @@ const renderAssistantText = (message: LiveMessage) => {
 					<span
 						className={cn(
 							"absolute inset-0 rounded-full transition-all",
-							message.isStreaming
+							isActivelyThinking
 								? "bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.4)] animate-[glow-pulse_1.5s_ease-in-out_infinite]"
 								: "bg-muted-foreground/40",
 						)}
@@ -130,12 +138,12 @@ const renderAssistantText = (message: LiveMessage) => {
 					{message.content ? (
 						<MessageResponse
 							className="wrap-break-word"
-							mode={message.isStreaming ? "streaming" : "static"}
-							parseIncompleteMarkdown={Boolean(message.isStreaming)}
+							mode={isActivelyThinking ? "streaming" : "static"}
+							parseIncompleteMarkdown={Boolean(isActivelyThinking)}
 						>
 							{message.content}
 						</MessageResponse>
-					) : message.isStreaming ? (
+					) : isActivelyThinking ? (
 						<StreamingPlaceholder />
 					) : (
 						<MessageResponse className="wrap-break-word" mode="static">

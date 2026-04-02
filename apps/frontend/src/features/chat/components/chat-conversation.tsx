@@ -188,6 +188,7 @@ export function ChatConversation({
 					<VirtualizedMessageList
 						ref={listRef}
 						messages={messages}
+						status={status}
 						conversationKey={conversationKey}
 						pendingApprovalMap={pendingApprovalMap}
 						onApprovalAction={onApprovalAction}

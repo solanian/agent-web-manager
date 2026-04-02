@@ -18,6 +18,7 @@ import {
 	useRef,
 } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import type { ChatStatus } from "ai";
 import type { LiveMessage } from "@/hooks/types";
 import { cn } from "@/lib/utils";
 import {
@@ -27,6 +28,7 @@ import {
 
 export type VirtualizedMessageListProps = {
 	messages: LiveMessage[];
+	status: ChatStatus;
 	conversationKey: string;
 	pendingApprovalMap: Record<string, boolean>;
 	onApprovalAction?: AssistantApprovalHandler;
@@ -147,6 +149,7 @@ function getMessageSpacingClass(
 function VirtualizedMessageListComponent(
 	{
 		messages,
+		status,
 		conversationKey,
 		pendingApprovalMap,
 		onApprovalAction,
@@ -292,6 +295,11 @@ function VirtualizedMessageListComponent(
 									onApprovalAction={onApprovalAction}
 									canRespondToApproval={canRespondToApproval}
 									blocksExpanded={blocksExpanded}
+									showPlaceholderActivity={
+										item.index === filteredMessages.length - 1 &&
+										!message.content &&
+										(status === "submitted" || status === "streaming")
+									}
 								/>
 								{!message.isStreaming &&
 									(!message.variant || message.variant === "text") &&
