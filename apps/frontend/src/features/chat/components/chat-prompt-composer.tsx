@@ -316,8 +316,8 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						</div>
 					</div>
 				</PromptInputBody>
-				<PromptInputFooter className="w-full gap-2 py-1 border-none bg-transparent shadow-none">
-					<PromptInputTools className="flex-1 min-w-0 flex-wrap">
+				<PromptInputFooter className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1 border-none bg-transparent shadow-none overflow-hidden">
+					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
 						<GlobalConfigControls
 							currentSession={currentSession}
 							onUpdateSessionProviderOptions={
@@ -328,7 +328,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						/>
 					</PromptInputTools>
 					{isStreaming ? (
-						<div className="flex items-center gap-1.5 shrink-0">
+						<div className="flex w-[76px] items-center justify-end gap-1.5 shrink-0">
 							<PromptInputButton
 								aria-label="Stop generation"
 								disabled={!onCancel}
@@ -367,7 +367,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								isUploading ||
 								!currentSession
 							}
-							className="shrink-0"
+							className="shrink-0 justify-self-end"
 						/>
 					)}
 				</PromptInputFooter>

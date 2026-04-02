@@ -66,7 +66,9 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 		maxTokens !== undefined;
 	const hasTabs = hasQueue || hasChanges || hasTodo;
 	const shouldShowActivity =
-		Boolean(activityStatus) && activityStatus?.status !== "connecting";
+		Boolean(activityStatus) &&
+		activityStatus?.status !== "connecting" &&
+		activityStatus?.status !== "idle";
 
 	// Auto-open queue tab when first item is added
 	useEffect(() => {
