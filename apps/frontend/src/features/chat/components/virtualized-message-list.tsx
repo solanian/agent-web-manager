@@ -108,7 +108,6 @@ function getMessageSpacingClass(
 	const isUser = message.role === "user";
 	const isAssistant = message.role === "assistant";
 	const isToolMessage = isAssistant && message.variant === "tool";
-	const isThinkingMessage = isAssistant && message.variant === "thinking";
 	const previousIsUser = previousMessage?.role === "user";
 	const previousIsAssistant = previousMessage?.role === "assistant";
 	const previousIsTool =
@@ -122,9 +121,6 @@ function getMessageSpacingClass(
 			if (isToolMessage) {
 				// Tool calls: slightly more breathing room between consecutive calls
 				classes.push(previousIsUser ? "mt-2" : "mt-1.5");
-			} else if (isThinkingMessage) {
-				// Thinking blocks have minimal spacing
-				classes.push(previousIsUser ? "mt-2" : "mt-1");
 			} else if (previousIsTool) {
 				// Text after tool gets slight spacing
 				classes.push("mt-2");

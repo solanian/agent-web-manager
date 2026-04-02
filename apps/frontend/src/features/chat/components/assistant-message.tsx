@@ -15,9 +15,6 @@ import {
 	ConfirmationTitle,
 	MessageContent,
 	MessageResponse,
-	Reasoning,
-	ReasoningContent,
-	ReasoningTrigger,
 	SubagentActivity,
 	Tool,
 	ToolContent,
@@ -75,8 +72,6 @@ export function AssistantMessage({
 				});
 			case "code":
 				return renderCodeMessage(message);
-			case "thinking":
-				return renderThinkingMessage(message, blocksExpanded);
 			default:
 				return renderAssistantText(message, showPlaceholderActivity);
 		}
@@ -107,7 +102,7 @@ function StreamingPlaceholder() {
 	return (
 		<div className="flex items-center gap-2 text-sm text-muted-foreground">
 			<Loader2Icon className="size-4 animate-spin text-primary/80" />
-			<span>Thinking through the response...</span>
+			<span>Generating response...</span>
 			<span className="tabular-nums text-xs text-muted-foreground/80">
 				{elapsedSeconds}s
 			</span>
@@ -147,7 +142,7 @@ const renderAssistantText = (
 						<StreamingPlaceholder />
 					) : (
 						<MessageResponse className="wrap-break-word" mode="static">
-							Thinking through the response...
+							Generating response...
 						</MessageResponse>
 					)}
 				</div>
@@ -469,31 +464,6 @@ const renderCodeMessage = (message: LiveMessage) => {
 					Assembling snippet…
 				</div>
 			)}
-		</MessageContent>
-	);
-};
-
-const renderThinkingMessage = (
-	message: LiveMessage,
-	blocksExpanded: boolean,
-) => {
-	const thinkingContent = message.thinking;
-	if (!thinkingContent) {
-		return renderAssistantText(message);
-	}
-
-	return (
-		<MessageContent className={assistantContentClass}>
-			<Reasoning
-				key={`${message.id}-${blocksExpanded}`}
-				isStreaming={message.isStreaming}
-				duration={message.thinkingDuration}
-				defaultOpen={blocksExpanded}
-				disableAutoClose
-			>
-				<ReasoningTrigger />
-				<ReasoningContent>{thinkingContent}</ReasoningContent>
-			</Reasoning>
 		</MessageContent>
 	);
 };
