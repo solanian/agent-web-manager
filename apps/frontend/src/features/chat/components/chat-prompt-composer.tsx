@@ -47,7 +47,6 @@ import { FileMentionMenu } from "../file-mention-menu";
 import { SlashCommandMenu } from "../slash-command-menu";
 import { useFileMentions } from "../useFileMentions";
 import { type SlashCommandDef, useSlashCommands } from "../useSlashCommands";
-import type { ActivityDetail } from "./activity-status-indicator";
 import { PromptToolbar } from "./prompt-toolbar";
 
 type ChatPromptComposerProps = {
@@ -73,7 +72,6 @@ type ChatPromptComposerProps = {
 	slashCommands?: SlashCommandDef[];
 	planMode?: boolean;
 	onPlanModeChange?: (enabled: boolean) => void;
-	activityStatus?: ActivityDetail;
 	usagePercent?: number;
 	usedTokens?: number;
 	maxTokens?: number;
@@ -97,7 +95,6 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 	slashCommands = [],
 	planMode = false,
 	onPlanModeChange,
-	activityStatus,
 	usagePercent,
 	usedTokens,
 	maxTokens,
@@ -208,7 +205,6 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 				isGitDiffLoading={isGitDiffLoading}
 				workDir={currentSession?.workDir}
 				planMode={planMode}
-				activityStatus={activityStatus}
 				usagePercent={usagePercent}
 				usedTokens={usedTokens}
 				maxTokens={maxTokens}

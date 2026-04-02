@@ -5,8 +5,6 @@ import {
 	type ReactElement,
 	useCallback,
 	useEffect,
-	useMemo,
-	useRef,
 	useState,
 } from "react";
 import type { LiveMessage } from "@/hooks/types";
@@ -20,10 +18,6 @@ export type { SlashCommandDef };
 
 import { toast } from "sonner";
 import { useGitDiffStats } from "@/hooks/useGitDiffStats";
-import {
-	type ActivityDetail,
-	deriveActivityStatus,
-} from "./components/activity-status-indicator";
 import { ApprovalDialog } from "./components/approval-dialog";
 import { ChatConversation } from "./components/chat-conversation";
 import { ChatPromptComposer } from "./components/chat-prompt-composer";
@@ -148,39 +142,6 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 	const { stats: gitDiffStats, isLoading: isGitDiffLoading } = useGitDiffStats(
 		currentSession?.sessionId ?? null,
 	);
-
-	// Derive activity status for the header indicator
-	// Use ref to cache the previous result and avoid unnecessary object reference changes
-	const prevActivityRef = useRef<ActivityDetail | null>(null);
-
-	const activityStatus = useMemo(() => {
-		const newStatus = deriveActivityStatus({
-			chatStatus: status,
-			isAwaitingFirstResponse,
-			isReplayingHistory,
-			isUploadingFiles,
-			messages,
-		});
-
-		// If status and description haven't changed, return cached reference
-		// to avoid unnecessary re-renders in downstream components
-		if (
-			prevActivityRef.current &&
-			prevActivityRef.current.status === newStatus.status &&
-			prevActivityRef.current.description === newStatus.description
-		) {
-			return prevActivityRef.current;
-		}
-
-		prevActivityRef.current = newStatus;
-		return newStatus;
-	}, [
-		status,
-		isAwaitingFirstResponse,
-		isReplayingHistory,
-		isUploadingFiles,
-		messages,
-	]);
 
 	const maxTokens = maxContextSize ?? 64000;
 	const usedTokens = Math.round(contextUsage * maxTokens);
@@ -373,7 +334,6 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 											slashCommands={slashCommands}
 											planMode={planMode}
 											onPlanModeChange={onPlanModeChange}
-											activityStatus={activityStatus}
 											usagePercent={usagePercent}
 											usedTokens={usedTokens}
 											maxTokens={maxTokens}

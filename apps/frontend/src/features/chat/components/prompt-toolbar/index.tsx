@@ -11,10 +11,6 @@ import type { TokenUsage } from "@/hooks/wireTypes";
 import type { GitDiffStats } from "@/lib/api/models";
 import { cn } from "@/lib/utils";
 import { useQueueStore } from "../../queue-store";
-import {
-	type ActivityDetail,
-	ToolbarActivityIndicator,
-} from "../activity-status-indicator";
 import { ToolbarChangesPanel, ToolbarChangesTab } from "./toolbar-changes";
 import { ToolbarContextIndicator } from "./toolbar-context";
 import { ToolbarQueuePanel, ToolbarQueueTab } from "./toolbar-queue";
@@ -29,7 +25,6 @@ type PromptToolbarProps = {
 	isGitDiffLoading?: boolean;
 	workDir?: string | null;
 	planMode?: boolean;
-	activityStatus?: ActivityDetail;
 	usagePercent?: number;
 	usedTokens?: number;
 	maxTokens?: number;
@@ -43,7 +38,6 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 	isGitDiffLoading,
 	workDir,
 	planMode = false,
-	activityStatus,
 	usagePercent,
 	usedTokens,
 	maxTokens,
@@ -65,10 +59,6 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 		usedTokens !== undefined &&
 		maxTokens !== undefined;
 	const hasTabs = hasQueue || hasChanges || hasTodo;
-	const shouldShowActivity =
-		Boolean(activityStatus) &&
-		activityStatus?.status !== "connecting" &&
-		activityStatus?.status !== "idle";
 
 	// Auto-open queue tab when first item is added
 	useEffect(() => {
@@ -89,7 +79,7 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 		setActiveTab((prev) => (prev === tab ? null : tab));
 	}, []);
 
-	if (!(hasTabs || shouldShowActivity || hasContext || planMode)) return null;
+	if (!(hasTabs || hasContext || planMode)) return null;
 
 	return (
 		<div
@@ -116,10 +106,6 @@ export const PromptToolbar = memo(function PromptToolbarComponent({
 
 			{/* ── Tab bar ── */}
 			<div className="flex items-center gap-1.5 px-1">
-				{shouldShowActivity && activityStatus && (
-					<ToolbarActivityIndicator activity={activityStatus} />
-				)}
-
 				{hasQueue && (
 					<ToolbarQueueTab
 						count={queue.length}
