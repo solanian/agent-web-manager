@@ -104,7 +104,7 @@ export function ChatConversation({
 
 	return (
 		<div
-			className="relative flex h-full flex-col overflow-x-hidden px-0.5 sm:px-2"
+			className="relative flex h-full flex-col overflow-x-hidden px-0 sm:px-2"
 			role="log"
 		>
 			{shouldShowEmptyState ? (
