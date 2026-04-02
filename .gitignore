@@ -12,3 +12,5 @@ packages/*/dist/
 .DS_Store
 
 .omc/
+
+.omx/
