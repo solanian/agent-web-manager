@@ -122,6 +122,10 @@ export class BackendService {
 			status: busyStatus,
 		});
 
+		const releaseActiveRun = () => {
+			this.activeRuns.delete(sessionId);
+		};
+
 		const running = runProviderTurn(updated.provider, updated, {
 			onStdout: async (delta) => {
 				await this.store.appendAssistantDelta(
@@ -137,6 +141,8 @@ export class BackendService {
 				});
 			},
 			onExit: async (code, stderr) => {
+				releaseActiveRun();
+
 				const finalSession = this.store.getSession(sessionId);
 				if (!finalSession) {
 					return;
@@ -194,7 +200,7 @@ export class BackendService {
 				// onExit already translated provider failures into session status/events.
 			})
 			.finally(() => {
-				this.activeRuns.delete(sessionId);
+				releaseActiveRun();
 			});
 		return updated;
 	}

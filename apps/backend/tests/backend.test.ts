@@ -100,6 +100,96 @@ test("backend server creates sessions and streams provider output", async () => 
 	expect(session.title).toContain("hello");
 });
 
+test("backend accepts an immediate follow-up after assistant_done", async () => {
+	const { dir, scriptPath } = await createFixtureScript();
+	defaultProviderCommands.codex.command = process.execPath;
+	defaultProviderCommands.codex.args = [scriptPath, "$PROMPT"];
+
+	const runtime = await createBackendServer({
+		host: "127.0.0.1",
+		port: 0,
+		dataDir: join(dir, "data"),
+	});
+	runtime.server.listen(0, "127.0.0.1");
+	await once(runtime.server, "listening");
+	cleanup.push(async () => {
+		runtime.server.close();
+		await once(runtime.server, "close");
+	});
+
+	const address = runtime.server.address();
+	if (!address || typeof address === "string") {
+		throw new Error("Expected TCP address");
+	}
+	const baseUrl = `http://127.0.0.1:${address.port}`;
+
+	const createResponse = await fetch(`${baseUrl}/api/sessions`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider: "codex", workDir: dir }),
+	});
+	const created = await createResponse.json();
+	expect(createResponse.status).toBe(201);
+
+	let secondResponseStatus: number | null = null;
+	let secondResponseBody = "";
+	let secondRequestStarted = false;
+
+	const ws = new WebSocket(
+		`ws://127.0.0.1:${address.port}/api/sessions/${created.session_id}/stream`,
+	);
+	cleanup.push(async () => ws.close());
+	await once(ws, "open");
+
+	const secondRequestFinished = new Promise<void>((resolve, reject) => {
+		ws.on("error", reject);
+		ws.on("message", async (data) => {
+			const event = JSON.parse(data.toString()) as { type?: string };
+			if (event.type !== "assistant_done" || secondRequestStarted) {
+				return;
+			}
+			secondRequestStarted = true;
+			try {
+				const secondResponse = await fetch(
+					`${baseUrl}/api/sessions/${created.session_id}/messages`,
+					{
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ text: "follow-up" }),
+					},
+				);
+				secondResponseStatus = secondResponse.status;
+				secondResponseBody = await secondResponse.text();
+				resolve();
+			} catch (error) {
+				reject(error);
+			}
+		});
+	});
+
+	const firstMessageResponse = await fetch(
+		`${baseUrl}/api/sessions/${created.session_id}/messages`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ text: "hello" }),
+		},
+	);
+	expect(firstMessageResponse.status).toBe(202);
+
+	await Promise.race([
+		secondRequestFinished,
+		new Promise((_, reject) =>
+			setTimeout(
+				() => reject(new Error("Timed out waiting for follow-up send")),
+				3000,
+			),
+		),
+	]);
+
+	expect(secondResponseStatus, secondResponseBody).toBe(202);
+});
+
 test("provider metadata advertises selectable options", () => {
 	const providers = listProviders();
 	expect(
