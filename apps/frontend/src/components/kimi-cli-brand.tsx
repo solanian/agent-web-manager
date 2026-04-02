@@ -21,7 +21,7 @@ export function KimiCliBrand({
 		<div className={cn("flex items-center gap-2", className)}>
 			<div className="flex items-center gap-2">
 				<img
-					src="/logo.png"
+					src="/agent-web-manager-mark.svg"
 					alt="Agent Web Manager"
 					width={logoPx}
 					height={logoPx}

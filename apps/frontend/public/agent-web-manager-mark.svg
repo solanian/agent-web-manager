@@ -1,0 +1,19 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Agent Web Manager logo</title>
+  <desc id="desc">Stylized AWM monogram inside a rounded square</desc>
+  <defs>
+    <linearGradient id="bg" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="72" y1="72" x2="184" y2="184" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7DD3FC"/>
+      <stop offset="1" stop-color="#C4B5FD"/>
+    </linearGradient>
+  </defs>
+  <rect x="20" y="20" width="216" height="216" rx="52" fill="url(#bg)"/>
+  <path d="M72 176L108 80H124L160 176H141L132 150H99L90 176H72ZM104 134H127L116 101L104 134Z" fill="white"/>
+  <path d="M172 80H190V176H172V80Z" fill="url(#accent)"/>
+  <path d="M152 104C152 90.7452 162.745 80 176 80H190V98H176C172.686 98 170 100.686 170 104V106C170 109.314 172.686 112 176 112H190V130H176C162.745 130 152 119.255 152 106V104Z" fill="white" opacity="0.9"/>
+  <path d="M152 150C152 136.745 162.745 126 176 126H190V144H176C172.686 144 170 146.686 170 150V152C170 155.314 172.686 158 176 158H190V176H176C162.745 176 152 165.255 152 152V150Z" fill="white" opacity="0.9"/>
+</svg>

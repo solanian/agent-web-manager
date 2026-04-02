@@ -346,7 +346,7 @@ function App() {
 										className="transition-opacity hover:opacity-80"
 									>
 										<img
-											src="/logo.png"
+											src="/agent-web-manager-mark.svg"
 											alt="Kimi"
 											width={24}
 											height={24}
