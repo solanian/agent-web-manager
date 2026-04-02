@@ -1,0 +1,14 @@
+node_modules/
+apps/*/dist/
+packages/*/dist/
+*.tsbuildinfo
+.omx/runtime/
+.omx/logs/
+.omx/metrics.json
+.omx/tmux-hook.json
+.omx/notepad.md
+.omx/state/
+.omx/logs_*.jsonl
+.DS_Store
+
+.omc/

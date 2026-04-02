@@ -1,0 +1,26 @@
+{
+  "name": "@agent-web-manager/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "biome check src tests",
+    "format": "biome check --write src tests"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.8",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

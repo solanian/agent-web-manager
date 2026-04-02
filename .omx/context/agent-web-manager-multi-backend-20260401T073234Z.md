@@ -1,0 +1,32 @@
+# Context Snapshot
+
+- task statement: Build a web manager that uses Kimi CLI's Web UI as the base, integrates Codex and Claude Code, separates backend server and frontend server, and allows one frontend server to attach multiple backend servers.
+- desired outcome:
+  - backend server: manages local agent providers (Codex, Claude Code, optionally Kimi) and exposes a unified session/chat API.
+  - frontend server: serves the Kimi-based web UI, stores registered backend servers, aggregates/proxies sessions across them, and enables multi-server operation from one UI.
+  - UI: visually remains Kimi Web UI as much as practical, with targeted extensions for server/provider selection.
+- known facts/evidence:
+  - current repo is effectively empty except .omx state files.
+  - latest Kimi CLI repo includes a React/Vite web app under `web/` and Python backend under `src/kimi_cli/web`.
+  - installed local CLIs expose help text:
+    - `codex exec` exists for non-interactive execution.
+    - `claude -p --output-format stream-json` exists for structured streaming print mode.
+    - `kimi --print --output-format stream-json` exists for structured print mode.
+  - Kimi frontend uses a session sidebar + chat workspace architecture; much of the UI can be reused even if backend protocol changes.
+- constraints:
+  - planning gate for Ralph requires PRD and test spec before implementation.
+  - prefer Kimi web UI directly, modifying only as needed.
+  - backend and frontend servers must be separated.
+  - one frontend server must work with multiple backend servers.
+  - no user follow-up unless fundamentally blocked.
+- unknowns/open questions:
+  - Codex CLI does not expose an obvious documented stream-json print flag via `codex --help`; may need plain stdout streaming fallback or pluggable command template.
+  - exact fidelity of Kimi's richer tool/reasoning UI may not be possible for all providers on first pass.
+  - auth/credential availability for real CLIs is unknown; tests should rely on fixture CLIs.
+- likely codebase touchpoints:
+  - new monorepo workspace in current repo
+  - copied/adapted Kimi `web/` frontend sources
+  - new backend server session/proxy/provider adapter modules
+  - new frontend server aggregation/proxy modules
+  - shared API/event schema
+  - tests using fixture CLI scripts and lightweight integration coverage
