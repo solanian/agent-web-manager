@@ -11,6 +11,7 @@ import {
 	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { Loader } from "./loader";
 import { Shimmer } from "./shimmer";
 import {
 	escapeHtmlOutsideCodeBlocks,
@@ -25,6 +26,7 @@ type ReasoningContextValue = {
 	isOpen: boolean;
 	setIsOpen: (open: boolean) => void;
 	duration: number | undefined;
+	liveDuration: number;
 };
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
@@ -74,18 +76,33 @@ export const Reasoning = memo(
 
 		const [hasAutoClosed, setHasAutoClosed] = useState(false);
 		const [startTime, setStartTime] = useState<number | null>(null);
+		const [liveDuration, setLiveDuration] = useState(0);
 
 		// Track duration when streaming starts and ends
 		useEffect(() => {
 			if (isStreaming) {
 				if (startTime === null) {
 					setStartTime(Date.now());
+					setLiveDuration(0);
 				}
 			} else if (startTime !== null) {
 				setDuration(Math.ceil((Date.now() - startTime) / MS_IN_S));
 				setStartTime(null);
+				setLiveDuration(0);
 			}
 		}, [isStreaming, startTime, setDuration]);
+
+		useEffect(() => {
+			if (!isStreaming || startTime === null) {
+				return;
+			}
+
+			const interval = window.setInterval(() => {
+				setLiveDuration(Math.floor((Date.now() - startTime) / MS_IN_S));
+			}, 1000);
+
+			return () => window.clearInterval(interval);
+		}, [isStreaming, startTime]);
 
 		// Auto-open when streaming starts, auto-close when streaming ends (once only)
 		useEffect(() => {
@@ -119,7 +136,7 @@ export const Reasoning = memo(
 
 		return (
 			<ReasoningContext.Provider
-				value={{ isStreaming, isOpen, setIsOpen, duration }}
+				value={{ isStreaming, isOpen, setIsOpen, duration, liveDuration }}
 			>
 				<Collapsible
 					className={cn("not-prose mb-2", className)}
@@ -136,7 +153,11 @@ export const Reasoning = memo(
 
 export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
 
-const getThinkingLabel = (isStreaming: boolean, duration?: number) => {
+const getThinkingLabel = (
+	isStreaming: boolean,
+	duration?: number,
+	liveDuration = 0,
+) => {
 	if (isStreaming || duration === 0) {
 		return (
 			<>
@@ -148,6 +169,11 @@ const getThinkingLabel = (isStreaming: boolean, duration?: number) => {
 				>
 					...
 				</Shimmer>
+				{liveDuration > 0 ? (
+					<span className="ml-1 not-italic text-xs tabular-nums text-muted-foreground/80">
+						{liveDuration}s
+					</span>
+				) : null}
 			</>
 		);
 	}
@@ -159,7 +185,7 @@ const getThinkingLabel = (isStreaming: boolean, duration?: number) => {
 
 export const ReasoningTrigger = memo(
 	({ className, children, ...props }: ReasoningTriggerProps) => {
-		const { isStreaming, isOpen, duration } = useReasoning();
+		const { isStreaming, isOpen, duration, liveDuration } = useReasoning();
 
 		return (
 			<CollapsibleTrigger
@@ -171,16 +197,18 @@ export const ReasoningTrigger = memo(
 			>
 				{children ?? (
 					<>
-						<SparklesIcon
-							className={cn(
-								"size-3.5 shrink-0 transition-colors",
-								isStreaming
-									? "text-amber-500 dark:text-amber-400 animate-pulse"
-									: "text-muted-foreground/60",
-							)}
-						/>
+						{isStreaming ? (
+							<Loader size={14} className="shrink-0 text-amber-500 dark:text-amber-400" />
+						) : (
+							<SparklesIcon
+								className={cn(
+									"size-3.5 shrink-0 transition-colors",
+									"text-muted-foreground/60",
+								)}
+							/>
+						)}
 						<span className={cn("italic", isStreaming && "text-foreground/70")}>
-							{getThinkingLabel(isStreaming, duration)}
+							{getThinkingLabel(isStreaming, duration, liveDuration)}
 						</span>
 						<ChevronRightIcon
 							className={cn(
