@@ -14,3 +14,4 @@ packages/*/dist/
 .omc/
 
 .omx/
+.data/

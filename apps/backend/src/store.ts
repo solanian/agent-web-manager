@@ -31,6 +31,7 @@ const sessionSummary = (record: BackendSessionRecord): Session => ({
 	archived: record.archived,
 	provider: record.provider,
 	providerLabel: record.providerLabel,
+	providerOptions: record.providerOptions,
 });
 
 export class BackendStore {
@@ -44,15 +45,19 @@ export class BackendStore {
 	async init(): Promise<void> {
 		await mkdir(this.sessionsDir, { recursive: true });
 		const files = await readdir(this.sessionsDir).catch(() => []);
-		await Promise.all(
+		const loadedRecords = await Promise.all(
 			files
 				.filter((file) => file.endsWith(".json"))
 				.map(async (file) => {
 					const raw = await readFile(join(this.sessionsDir, file), "utf8");
-					const parsed = JSON.parse(raw) as BackendSessionRecord;
+					const parsed = this.normalizeRecord(
+						JSON.parse(raw) as BackendSessionRecord,
+					);
 					this.sessions.set(parsed.sessionId, parsed);
+					return parsed;
 				}),
 		);
+		await Promise.all(loadedRecords.map((record) => this.persist(record)));
 	}
 
 	listSessions(
@@ -213,6 +218,22 @@ export class BackendStore {
 		const record = this.sessions.get(sessionId);
 		if (!record) {
 			throw new Error(`Session not found: ${sessionId}`);
+		}
+		return record;
+	}
+
+	private normalizeRecord(record: BackendSessionRecord): BackendSessionRecord {
+		record.providerLabel ||= providerLabel(record.provider);
+		record.archived ??= false;
+		record.isRunning = false;
+		if (record.status?.state === "busy") {
+			record.status = {
+				...record.status,
+				state: "idle",
+				reason: "recovered-after-restart",
+				detail: "Server restarted while the session was active.",
+				updatedAt: nowIso(),
+			};
 		}
 		return record;
 	}

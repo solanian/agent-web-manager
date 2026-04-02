@@ -1,6 +1,6 @@
 import type { ChatStatus } from "ai";
 import { AnimatePresence, motion } from "motion/react";
-import { memo, type ReactElement } from "react";
+import { memo, type ReactElement, useEffect, useState } from "react";
 import { Loader } from "@/components/ai-elements/loader";
 import type { LiveMessage } from "@/hooks/types";
 import { cn } from "@/lib/utils";
@@ -205,6 +205,28 @@ const STATUS_PULSE_COLORS: Record<ActivityStatus, string> = {
 	error: "bg-red-500/50",
 };
 
+const useElapsedSeconds = (active: boolean, resetKey: string) => {
+	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+	useEffect(() => {
+		if (!active) {
+			setElapsedSeconds(0);
+			return;
+		}
+
+		const startedAt = Date.now();
+		setElapsedSeconds(0);
+
+		const interval = window.setInterval(() => {
+			setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+		}, 1000);
+
+		return () => window.clearInterval(interval);
+	}, [active, resetKey]);
+
+	return elapsedSeconds;
+};
+
 export const ActivityStatusIndicator = memo(
 	function ActivityStatusIndicatorComponent({
 		activity,
@@ -213,7 +235,11 @@ export const ActivityStatusIndicator = memo(
 	}: ActivityStatusIndicatorProps): ReactElement {
 		const { status, description } = activity;
 		const isActive = status !== "idle";
-		const showSpinner = status === "processing";
+		const showSpinner = status === "processing" || status === "connecting";
+		const elapsedSeconds = useElapsedSeconds(
+			status === "processing" || status === "connecting",
+			`${status}:${description}`,
+		);
 
 		return (
 			<output
@@ -263,6 +289,12 @@ export const ActivityStatusIndicator = memo(
 							className="text-xs text-muted-foreground select-none"
 						>
 							{description}
+							{elapsedSeconds > 0 ? (
+								<span className="tabular-nums text-[11px] text-muted-foreground/80">
+									{" "}
+									· {elapsedSeconds}s
+								</span>
+							) : null}
 						</motion.span>
 					)}
 				</AnimatePresence>
@@ -284,6 +316,10 @@ export const ToolbarActivityIndicator = memo(
 		const { status, description } = activity;
 		const isActive = status !== "idle" && status !== "error";
 		const isError = status === "error";
+		const elapsedSeconds = useElapsedSeconds(
+			status === "processing" || status === "connecting",
+			`${status}:${description}`,
+		);
 
 		return (
 			<output
@@ -325,6 +361,10 @@ export const ToolbarActivityIndicator = memo(
 					/>
 				</div>
 
+				{(status === "processing" || status === "connecting") && (
+					<Loader size={12} className="text-muted-foreground" />
+				)}
+
 				{/* Description text with animated transitions */}
 				<AnimatePresence mode="wait">
 					<motion.span
@@ -336,6 +376,12 @@ export const ToolbarActivityIndicator = memo(
 						className="whitespace-nowrap"
 					>
 						{description}
+						{elapsedSeconds > 0 ? (
+							<span className="tabular-nums text-muted-foreground/80">
+								{" "}
+								· {elapsedSeconds}s
+							</span>
+						) : null}
 					</motion.span>
 				</AnimatePresence>
 			</output>
