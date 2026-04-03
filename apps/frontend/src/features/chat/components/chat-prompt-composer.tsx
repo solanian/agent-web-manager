@@ -24,6 +24,7 @@ import {
 	type ChangeEvent,
 	type KeyboardEvent,
 	memo,
+	type MouseEvent,
 	type ReactElement,
 	type SyntheticEvent,
 	useCallback,
@@ -198,6 +199,25 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 		setIsExpanded((prev) => !prev);
 	}, []);
 
+	const handleQueueClick = useCallback(
+		async (event: MouseEvent<HTMLButtonElement>) => {
+			event.preventDefault();
+			event.stopPropagation();
+
+			try {
+				await onSubmit({
+					text: promptController.textInput.value,
+					files: attachmentContext.files.map(({ id: _id, ...file }) => file),
+				});
+				attachmentContext.clear();
+				promptController.textInput.clear();
+			} catch {
+				// Keep the user's input intact on failure so it can be retried.
+			}
+		},
+		[attachmentContext, onSubmit, promptController],
+	);
+
 	return (
 		<div className="w-full">
 			<PromptToolbar
@@ -345,11 +365,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 										variant="outline"
 										className="shrink-0"
 										disabled={!(canSendMessage && currentSession)}
-										onClick={(event) => {
-											event.preventDefault();
-											event.stopPropagation();
-											event.currentTarget.form?.requestSubmit();
-										}}
+										onClick={(event) => void handleQueueClick(event)}
 									>
 										<ArrowUpIcon className="size-4" />
 									</PromptInputButton>
