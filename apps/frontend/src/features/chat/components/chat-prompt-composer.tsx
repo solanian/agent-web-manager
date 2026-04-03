@@ -337,8 +337,8 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						</div>
 					</div>
 				</PromptInputBody>
-				<PromptInputFooter className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1 border-none bg-transparent shadow-none overflow-hidden">
-					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+				<PromptInputFooter className="relative w-full py-1 border-none bg-transparent shadow-none overflow-hidden">
+					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden pr-[88px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
 						<GlobalConfigControls
 							currentSession={currentSession}
 							onUpdateSessionProviderOptions={
@@ -349,7 +349,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						/>
 					</PromptInputTools>
 					{isStreaming || isAwaitingIdle ? (
-						<div className="flex w-[76px] items-center justify-end gap-1.5 shrink-0">
+						<div className="absolute right-0 top-1/2 z-20 flex min-w-[76px] -translate-y-1/2 items-center justify-end gap-1.5 bg-background pl-2">
 							<PromptInputButton
 								aria-label="Stop generation"
 								disabled={!onCancel}
@@ -360,7 +360,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								}}
 								size="icon-sm"
 								variant="default"
-								className="shrink-0"
+								className="shrink-0 pointer-events-auto"
 							>
 								<SquareIcon className="size-4" />
 							</PromptInputButton>
@@ -371,7 +371,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 									type="button"
 									size="icon-sm"
 									variant="outline"
-									className="shrink-0"
+									className="shrink-0 pointer-events-auto"
 									disabled={!(canSendMessage && currentSession)}
 									onClick={(event) => void handleQueueClick(event)}
 								>
@@ -393,7 +393,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								isUploading ||
 								!currentSession
 							}
-							className="shrink-0 justify-self-end"
+							className="absolute right-0 top-1/2 z-20 -translate-y-1/2 shrink-0 bg-background pl-2"
 						/>
 					)}
 				</PromptInputFooter>
