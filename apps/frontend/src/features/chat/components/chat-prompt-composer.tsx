@@ -33,11 +33,6 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { MEDIA_CONFIG } from "@/config/media";
 import { GlobalConfigControls } from "@/features/chat/global-config-controls";
 import type { SessionFileEntry } from "@/hooks/useSessions";
@@ -105,6 +100,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 	const promptController = usePromptInputController();
 	const attachmentContext = usePromptInputAttachments();
 	const enqueue = useQueueStore((state) => state.enqueue);
+	const queueLength = useQueueStore((state) => state.queue.length);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -368,22 +364,25 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 							>
 								<SquareIcon className="size-4" />
 							</PromptInputButton>
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<PromptInputButton
-										aria-label="Queue message"
-										type="button"
-										size="icon-sm"
-										variant="outline"
-										className="shrink-0"
-										disabled={!(canSendMessage && currentSession)}
-										onClick={(event) => void handleQueueClick(event)}
-									>
-										<ArrowUpIcon className="size-4" />
-									</PromptInputButton>
-								</TooltipTrigger>
-								<TooltipContent>Queue message</TooltipContent>
-							</Tooltip>
+							<div className="relative shrink-0">
+								<PromptInputButton
+									aria-label="Queue message"
+									title="Queue message"
+									type="button"
+									size="icon-sm"
+									variant="outline"
+									className="shrink-0"
+									disabled={!(canSendMessage && currentSession)}
+									onClick={(event) => void handleQueueClick(event)}
+								>
+									<ArrowUpIcon className="size-4" />
+								</PromptInputButton>
+								{queueLength > 0 ? (
+									<span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-4 text-primary-foreground">
+										{queueLength}
+									</span>
+								) : null}
+							</div>
 						</div>
 					) : (
 						<PromptInputSubmit
