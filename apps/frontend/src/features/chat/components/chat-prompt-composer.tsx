@@ -263,9 +263,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								placeholder={
 									!currentSession
 										? "Create a session to start..."
-										: isAwaitingIdle
-											? "Please wait..."
-											: isStreaming
+										: isAwaitingIdle || isStreaming
 												? "Add a follow-up message..."
 												: "Ask anything, / for commands, @ to mention files"
 								}
@@ -273,8 +271,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								disabled={
 									!canSendMessage ||
 									isUploading ||
-									!currentSession ||
-									isAwaitingIdle
+									!currentSession
 								}
 								onChange={handleTextareaChange}
 								onSelect={handleTextareaSelection}
@@ -323,7 +320,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 							onPlanModeChange={onPlanModeChange}
 						/>
 					</PromptInputTools>
-					{isStreaming ? (
+					{isStreaming || isAwaitingIdle ? (
 						<div className="flex w-[76px] items-center justify-end gap-1.5 shrink-0">
 							<PromptInputButton
 								aria-label="Stop generation"
