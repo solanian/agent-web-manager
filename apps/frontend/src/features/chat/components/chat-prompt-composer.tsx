@@ -44,6 +44,7 @@ import type { SessionFileEntry } from "@/hooks/useSessions";
 import type { TokenUsage } from "@/hooks/wireTypes";
 import type { GitDiffStats, ProviderOptions, Session } from "@/lib/api/models";
 import { cn } from "@/lib/utils";
+import { useQueueStore } from "../queue-store";
 import { FileMentionMenu } from "../file-mention-menu";
 import { SlashCommandMenu } from "../slash-command-menu";
 import { useFileMentions } from "../useFileMentions";
@@ -103,6 +104,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 }: ChatPromptComposerProps): ReactElement {
 	const promptController = usePromptInputController();
 	const attachmentContext = usePromptInputAttachments();
+	const enqueue = useQueueStore((state) => state.enqueue);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -204,18 +206,28 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 			event.preventDefault();
 			event.stopPropagation();
 
-			try {
-				await onSubmit({
-					text: promptController.textInput.value,
-					files: attachmentContext.files.map(({ id: _id, ...file }) => file),
+			if (attachmentContext.files.length > 0) {
+				toast.info("Still processing", {
+					description: "File attachments cannot be queued. Please wait.",
 				});
-				attachmentContext.clear();
-				promptController.textInput.clear();
-			} catch {
-				// Keep the user's input intact on failure so it can be retried.
+				return;
 			}
+
+			const text = promptController.textInput.value.trim();
+			if (!text) {
+				toast.info("Empty Message", {
+					description: "Enter a follow-up message to queue.",
+				});
+				return;
+			}
+
+			enqueue(text);
+			promptController.textInput.clear();
+			toast.info("Message queued", {
+				description: "It will be sent when the current response finishes.",
+			});
 		},
-		[attachmentContext, onSubmit, promptController],
+		[attachmentContext, enqueue, promptController],
 	);
 
 	return (
