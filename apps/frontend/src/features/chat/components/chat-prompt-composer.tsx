@@ -338,15 +338,21 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 							</PromptInputButton>
 							<Tooltip>
 								<TooltipTrigger asChild>
-									<PromptInputSubmit
+									<PromptInputButton
 										aria-label="Queue message"
+										type="button"
 										size="icon-sm"
 										variant="outline"
 										className="shrink-0"
 										disabled={!(canSendMessage && currentSession)}
+										onClick={(event) => {
+											event.preventDefault();
+											event.stopPropagation();
+											event.currentTarget.form?.requestSubmit();
+										}}
 									>
 										<ArrowUpIcon className="size-4" />
-									</PromptInputSubmit>
+									</PromptInputButton>
 								</TooltipTrigger>
 								<TooltipContent>Queue message</TooltipContent>
 							</Tooltip>
