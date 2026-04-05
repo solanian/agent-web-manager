@@ -135,6 +135,7 @@ export function useSessionStream({
 	onFirstTurnComplete,
 }: UseSessionStreamOptions): UseSessionStreamReturn {
 	const wsRef = useRef<WebSocket | null>(null);
+	const reconnectTimerRef = useRef<number | null>(null);
 	const firstTurnCompletedRef = useRef(false);
 	const [messages, setMessages] = useState<LiveMessage[]>([]);
 	const [status, setStatus] = useState<ChatStatus>("ready");
@@ -147,6 +148,10 @@ export function useSessionStream({
 	const [error, setError] = useState<Error | null>(null);
 
 	const disconnect = useCallback(() => {
+		if (reconnectTimerRef.current !== null) {
+			window.clearTimeout(reconnectTimerRef.current);
+			reconnectTimerRef.current = null;
+		}
 		wsRef.current?.close();
 		wsRef.current = null;
 		setIsConnected(false);
@@ -179,6 +184,10 @@ export function useSessionStream({
 
 		ws.onopen = () => {
 			if (wsRef.current !== ws) return;
+			if (reconnectTimerRef.current !== null) {
+				window.clearTimeout(reconnectTimerRef.current);
+				reconnectTimerRef.current = null;
+			}
 			setError(null);
 			setIsConnected(true);
 			onConnectionChange?.(true);
@@ -186,8 +195,16 @@ export function useSessionStream({
 
 		ws.onclose = () => {
 			if (wsRef.current !== ws) return;
+			wsRef.current = null;
 			setIsConnected(false);
 			onConnectionChange?.(false);
+			if (!sessionId) {
+				return;
+			}
+			reconnectTimerRef.current = window.setTimeout(() => {
+				reconnectTimerRef.current = null;
+				connect();
+			}, 1000);
 		};
 
 		ws.onerror = () => {
@@ -287,6 +304,14 @@ export function useSessionStream({
 		connect();
 		return () => disconnect();
 	}, [connect, disconnect]);
+
+	useEffect(() => {
+		return () => {
+			if (reconnectTimerRef.current !== null) {
+				window.clearTimeout(reconnectTimerRef.current);
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		onMessagesChange?.(messages);
