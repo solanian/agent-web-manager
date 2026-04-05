@@ -25,6 +25,7 @@ const materializeArgs = (
 	template: ProviderCommandConfig,
 	prompt: string,
 	extraArgs: string[],
+	options: { usePromptFromStdin?: boolean } = {},
 ): string[] => {
 	const args: string[] = [];
 	let insertedExtraArgs = false;
@@ -37,7 +38,11 @@ const materializeArgs = (
 				args.push(...extraArgs);
 				insertedExtraArgs = true;
 			}
-			args.push(arg.replaceAll("$PROMPT", prompt));
+			args.push(
+				options.usePromptFromStdin
+					? arg.replaceAll("$PROMPT", "-")
+					: arg.replaceAll("$PROMPT", prompt),
+			);
 			continue;
 		}
 		args.push(arg);
@@ -46,7 +51,7 @@ const materializeArgs = (
 	if (!insertedExtraArgs) {
 		args.push(...extraArgs);
 	}
-	if (!hasPromptPlaceholder) {
+	if (!hasPromptPlaceholder && !options.usePromptFromStdin) {
 		args.push(prompt);
 	}
 	return args;
@@ -97,24 +102,31 @@ export const runProviderTurn = (
 		session.workDir ?? process.cwd(),
 		session.messages,
 	);
+	const usePromptFromStdin = provider === "codex";
 	const args = materializeArgs(
 		template,
 		prompt,
 		buildProviderOptionArgs(provider, session.providerOptions),
+		{ usePromptFromStdin },
 	);
 	const child = spawn(template.command, args, {
 		cwd: session.workDir ?? process.cwd(),
 		env: process.env,
-		stdio: ["ignore", "pipe", "pipe"],
+		stdio: [usePromptFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
 	});
+
+	if (usePromptFromStdin && child.stdin) {
+		child.stdin.write(prompt);
+		child.stdin.end();
+	}
 
 	let stderr = "";
 
 	const completed = new Promise<void>((resolve, reject) => {
-		child.stdout.on("data", async (chunk) => {
+		child.stdout?.on("data", async (chunk) => {
 			await callbacks.onStdout(chunk.toString());
 		});
-		child.stderr.on("data", (chunk) => {
+		child.stderr?.on("data", (chunk) => {
 			const text = chunk.toString();
 			stderr += text;
 			callbacks.onStderr?.(text);
