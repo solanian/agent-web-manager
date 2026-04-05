@@ -24,7 +24,6 @@ import {
 	type ChangeEvent,
 	type KeyboardEvent,
 	memo,
-	type MouseEvent,
 	type ReactElement,
 	type SyntheticEvent,
 	useCallback,
@@ -39,7 +38,6 @@ import type { SessionFileEntry } from "@/hooks/useSessions";
 import type { TokenUsage } from "@/hooks/wireTypes";
 import type { GitDiffStats, ProviderOptions, Session } from "@/lib/api/models";
 import { cn } from "@/lib/utils";
-import { useQueueStore } from "../queue-store";
 import { FileMentionMenu } from "../file-mention-menu";
 import { SlashCommandMenu } from "../slash-command-menu";
 import { useFileMentions } from "../useFileMentions";
@@ -99,8 +97,6 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 }: ChatPromptComposerProps): ReactElement {
 	const promptController = usePromptInputController();
 	const attachmentContext = usePromptInputAttachments();
-	const enqueue = useQueueStore((state) => state.enqueue);
-	const queueLength = useQueueStore((state) => state.queue.length);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const [isExpanded, setIsExpanded] = useState(false);
 
@@ -196,35 +192,6 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 	const handleToggleExpand = useCallback(() => {
 		setIsExpanded((prev) => !prev);
 	}, []);
-
-	const handleQueueClick = useCallback(
-		async (event: MouseEvent<HTMLButtonElement>) => {
-			event.preventDefault();
-			event.stopPropagation();
-
-			if (attachmentContext.files.length > 0) {
-				toast.info("Still processing", {
-					description: "File attachments cannot be queued. Please wait.",
-				});
-				return;
-			}
-
-			const text = promptController.textInput.value.trim();
-			if (!text) {
-				toast.info("Empty Message", {
-					description: "Enter a follow-up message to queue.",
-				});
-				return;
-			}
-
-			enqueue(text);
-			promptController.textInput.clear();
-			toast.info("Message queued", {
-				description: "It will be sent when the current response finishes.",
-			});
-		},
-		[attachmentContext, enqueue, promptController],
-	);
 
 	return (
 		<div className="w-full">
@@ -337,8 +304,8 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						</div>
 					</div>
 				</PromptInputBody>
-				<PromptInputFooter className="relative w-full py-1 border-none bg-transparent shadow-none overflow-hidden">
-					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden pr-[88px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+				<PromptInputFooter className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1 border-none bg-transparent shadow-none overflow-hidden">
+					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
 						<GlobalConfigControls
 							currentSession={currentSession}
 							onUpdateSessionProviderOptions={
@@ -349,7 +316,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 						/>
 					</PromptInputTools>
 					{isStreaming || isAwaitingIdle ? (
-						<div className="absolute right-0 top-1/2 z-20 flex min-w-[76px] -translate-y-1/2 items-center justify-end gap-1.5 bg-background pl-2">
+						<div className="flex w-[76px] items-center justify-end gap-1.5 shrink-0">
 							<PromptInputButton
 								aria-label="Stop generation"
 								disabled={!onCancel}
@@ -360,29 +327,19 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								}}
 								size="icon-sm"
 								variant="default"
-								className="shrink-0 pointer-events-auto"
+								className="shrink-0"
 							>
 								<SquareIcon className="size-4" />
 							</PromptInputButton>
-							<div className="relative shrink-0">
-								<PromptInputButton
+							<PromptInputSubmit
 									aria-label="Queue message"
-									title="Queue message"
-									type="button"
 									size="icon-sm"
 									variant="outline"
-									className="shrink-0 pointer-events-auto"
+									className="shrink-0"
 									disabled={!(canSendMessage && currentSession)}
-									onClick={(event) => void handleQueueClick(event)}
 								>
 									<ArrowUpIcon className="size-4" />
-								</PromptInputButton>
-								{queueLength > 0 ? (
-									<span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-4 text-primary-foreground">
-										{queueLength}
-									</span>
-								) : null}
-							</div>
+								</PromptInputSubmit>
 						</div>
 					) : (
 						<PromptInputSubmit
@@ -393,7 +350,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								isUploading ||
 								!currentSession
 							}
-							className="absolute right-0 top-1/2 z-20 -translate-y-1/2 shrink-0 bg-background pl-2"
+							className="shrink-0 justify-self-end"
 						/>
 					)}
 				</PromptInputFooter>
