@@ -58,6 +58,12 @@ function App() {
 	const [streamStatus, setStreamStatus] = useState<ChatStatus>("ready");
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isSidebarAnimating, setIsSidebarAnimating] = useState(false);
+	const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(
+		() => new Set(),
+	);
+	const previousSessionStateRef = useRef<
+		Map<string, { isRunning: boolean; lastUpdated: number }>
+	>(new Map());
 
 	const {
 		sessions,
@@ -227,6 +233,53 @@ function App() {
 	}, [selectedSessionId]);
 
 	useEffect(() => {
+		if (!selectedSessionId) {
+			return;
+		}
+		setUnreadSessionIds((previous) => {
+			if (!previous.has(selectedSessionId)) {
+				return previous;
+			}
+			const next = new Set(previous);
+			next.delete(selectedSessionId);
+			return next;
+		});
+	}, [selectedSessionId]);
+
+	useEffect(() => {
+		setUnreadSessionIds((previous) => {
+			let next: Set<string> | null = null;
+			const previousState = previousSessionStateRef.current;
+
+			for (const session of sessions) {
+				const prior = previousState.get(session.sessionId);
+				if (
+					prior &&
+					session.sessionId !== selectedSessionId &&
+					prior.isRunning &&
+					!session.isRunning &&
+					session.lastUpdated.getTime() > prior.lastUpdated
+				) {
+					next ??= new Set(previous);
+					next.add(session.sessionId);
+				}
+			}
+
+			previousSessionStateRef.current = new Map(
+				sessions.map((session) => [
+					session.sessionId,
+					{
+						isRunning: session.isRunning,
+						lastUpdated: session.lastUpdated.getTime(),
+					},
+				]),
+			);
+
+			return next ?? previous;
+		});
+	}, [selectedSessionId, sessions]);
+
+	useEffect(() => {
 		if (sessionsError) {
 			toast.error("Session Error", { description: sessionsError });
 		}
@@ -264,8 +317,9 @@ function App() {
 				providerLabel: session.providerLabel,
 				serverName: session.serverName,
 				isRunning: session.isRunning,
+				hasUnread: unreadSessionIds.has(session.sessionId),
 			})),
-		[sessions],
+		[sessions, unreadSessionIds],
 	);
 
 	const archivedSessionSummaries = useMemo(
@@ -279,8 +333,9 @@ function App() {
 				providerLabel: session.providerLabel,
 				serverName: session.serverName,
 				isRunning: session.isRunning,
+				hasUnread: unreadSessionIds.has(session.sessionId),
 			})),
-		[archivedSessions],
+		[archivedSessions, unreadSessionIds],
 	);
 
 	const renderChatPanel = () => (

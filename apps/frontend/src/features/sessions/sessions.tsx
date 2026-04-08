@@ -69,6 +69,7 @@ type SessionSummary = {
 	providerLabel?: string;
 	serverName?: string;
 	isRunning?: boolean;
+	hasUnread?: boolean;
 };
 
 type ViewMode = "list" | "grouped";
@@ -350,6 +351,21 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 					</span>
 				</TooltipTrigger>
 				<TooltipContent side="right">Response in progress</TooltipContent>
+			</Tooltip>
+		);
+	}, []);
+
+	const renderUnreadIndicator = useCallback((session: SessionSummary) => {
+		if (!session.hasUnread) {
+			return null;
+		}
+
+		return (
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<span className="inline-flex size-2 shrink-0 rounded-full bg-sky-500" />
+				</TooltipTrigger>
+				<TooltipContent side="right">Unread response</TooltipContent>
 			</Tooltip>
 		);
 	}, []);
@@ -1083,6 +1099,7 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 																									)}
 																								</TooltipContent>
 																							</Tooltip>
+																							{renderUnreadIndicator(session)}
 																							{renderRunningIndicator(session)}
 																						</div>
 																					)}
@@ -1225,6 +1242,7 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 																		{normalizeTitle(session.title)}
 																	</TooltipContent>
 																</Tooltip>
+																{renderUnreadIndicator(session)}
 																{renderRunningIndicator(session)}
 																<span className="text-[10px] text-muted-foreground shrink-0">
 																	{session.updatedAt}
