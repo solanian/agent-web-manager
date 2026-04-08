@@ -256,6 +256,12 @@ test("backend accepts an immediate follow-up after assistant_done", async () => 
 	expect(fixtureState.invocations).toHaveLength(2);
 	expect(fixtureState.invocations[0]?.isResume).toBe(false);
 	expect(fixtureState.invocations[1]?.isResume).toBe(true);
+	expect(fixtureState.invocations[1]?.args).toEqual(
+		expect.arrayContaining([
+			"--skip-git-repo-check",
+			"--dangerously-bypass-approvals-and-sandbox",
+		]),
+	);
 	expect(fixtureState.invocations[1]?.prompt).toContain("follow-up");
 });
 

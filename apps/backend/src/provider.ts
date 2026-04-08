@@ -74,13 +74,19 @@ type CodexEvent =
 			type: string;
 	  };
 
+const stripPromptPlaceholderArgs = (args: string[]): string[] =>
+	args.filter((arg) => !arg.includes("$PROMPT"));
+
 const buildCodexArgs = (
 	template: ProviderCommandConfig,
 	session: BackendSessionRecord,
 	prompt: string,
 	extraArgs: string[],
 ): { args: string[]; prompt: string; useJson: boolean } => {
-	const commandArgs = [...extraArgs, "--json"];
+	const baseArgs = stripPromptPlaceholderArgs(template.args).filter(
+		(arg, index) => !(index === 0 && arg === "exec"),
+	);
+	const commandArgs = [...baseArgs, ...extraArgs, "--json"];
 	if (session.nativeSessionId) {
 		return {
 			args: ["exec", "resume", ...commandArgs, session.nativeSessionId, "-"],
