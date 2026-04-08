@@ -26,6 +26,7 @@ import {
 	QuestionDialog,
 	usePendingQuestion,
 } from "./components/question-dialog";
+import type { SessionNotificationSummary } from "./components/session-notifications-popover";
 import { SessionFilesPanel } from "./components/session-files-panel";
 
 // Re-export LiveMessage type from hooks for backward compatibility
@@ -92,6 +93,12 @@ type ChatWorkspaceProps = {
 	maxContextSize?: number;
 	/** Fork session at a specific turn */
 	onForkSession?: (turnIndex: number) => void;
+	notifications?: SessionNotificationSummary[];
+	unreadNotificationCount?: number;
+	browserNotificationPermission?: NotificationPermission | "unsupported";
+	onOpenNotification?: (notificationId: string, sessionId: string) => void;
+	onRemoveNotifications?: (notificationIds: string[]) => void;
+	onRequestBrowserNotifications?: () => void | Promise<void>;
 };
 
 type ToolApproval = NonNullable<LiveMessage["toolCall"]>["approval"];
@@ -124,6 +131,12 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 	planMode = false,
 	onPlanModeChange,
 	onForkSession,
+	notifications = [],
+	unreadNotificationCount = 0,
+	browserNotificationPermission = "unsupported",
+	onOpenNotification,
+	onRemoveNotifications,
+	onRequestBrowserNotifications,
 }: ChatWorkspaceProps): ReactElement {
 	const [blocksExpanded, setBlocksExpanded] = useState(false);
 	const [isFilesPanelOpen, setIsFilesPanelOpen] = useState(false);
@@ -274,6 +287,12 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 					onOpenSearch={() => setIsSearchOpen(true)}
 					onOpenSidebar={onOpenSidebar}
 					onRenameSession={onRenameSession}
+					notifications={notifications}
+					unreadNotificationCount={unreadNotificationCount}
+					browserNotificationPermission={browserNotificationPermission}
+					onOpenNotification={onOpenNotification}
+					onRemoveNotifications={onRemoveNotifications}
+					onRequestBrowserNotifications={onRequestBrowserNotifications}
 				/>
 
 				<div className="relative flex min-h-0 flex-1 overflow-hidden">

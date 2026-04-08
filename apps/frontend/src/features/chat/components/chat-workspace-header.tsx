@@ -1,4 +1,5 @@
 import {
+	Bell,
 	ChevronsDownUpIcon,
 	ChevronsUpDownIcon,
 	PanelLeftOpen,
@@ -19,6 +20,10 @@ import type { Session } from "@/lib/api/models";
 import { shortenTitle } from "@/lib/utils";
 import { OpenInMenu } from "./open-in-menu";
 import { SessionInfoPopover } from "./session-info-popover";
+import {
+	type SessionNotificationSummary,
+	SessionNotificationsPopover,
+} from "./session-notifications-popover";
 
 type ChatWorkspaceHeaderProps = {
 	currentStep: number;
@@ -32,6 +37,12 @@ type ChatWorkspaceHeaderProps = {
 	onOpenSearch: () => void;
 	onOpenSidebar?: () => void;
 	onRenameSession?: (sessionId: string, newTitle: string) => Promise<boolean>;
+	notifications?: SessionNotificationSummary[];
+	unreadNotificationCount?: number;
+	browserNotificationPermission?: NotificationPermission | "unsupported";
+	onOpenNotification?: (notificationId: string, sessionId: string) => void;
+	onRemoveNotifications?: (notificationIds: string[]) => void;
+	onRequestBrowserNotifications?: () => void | Promise<void>;
 };
 
 export function ChatWorkspaceHeader({
@@ -46,6 +57,12 @@ export function ChatWorkspaceHeader({
 	onOpenSearch,
 	onOpenSidebar,
 	onRenameSession,
+	notifications = [],
+	unreadNotificationCount = 0,
+	browserNotificationPermission = "unsupported",
+	onOpenNotification,
+	onRemoveNotifications,
+	onRequestBrowserNotifications,
 }: ChatWorkspaceHeaderProps) {
 	const searchShortcutModifier = isMacOS() ? "Cmd" : "Ctrl";
 
@@ -150,6 +167,29 @@ export function ChatWorkspaceHeader({
 							sessionId={selectedSessionId}
 							session={currentSession}
 						/>
+						{onOpenNotification && onRemoveNotifications ? (
+							<SessionNotificationsPopover
+								notifications={notifications}
+								unreadCount={unreadNotificationCount}
+								browserNotificationPermission={
+									browserNotificationPermission
+								}
+								onOpenNotification={onOpenNotification}
+								onRemoveNotifications={onRemoveNotifications}
+								onRequestBrowserNotifications={
+									onRequestBrowserNotifications
+								}
+							/>
+						) : (
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground">
+										<Bell className="size-4" />
+									</span>
+								</TooltipTrigger>
+								<TooltipContent side="bottom">Notifications</TooltipContent>
+							</Tooltip>
+						)}
 						{onToggleFilesPanel ? (
 							<Tooltip>
 								<TooltipTrigger asChild>

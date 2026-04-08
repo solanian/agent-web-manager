@@ -82,6 +82,7 @@ export type SessionMessage = {
 export type Session = {
 	sessionId: string;
 	title: string;
+	titleManuallySet?: boolean;
 	lastUpdated: string;
 	isRunning: boolean;
 	status: SessionStatus | null;

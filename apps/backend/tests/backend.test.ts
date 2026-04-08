@@ -19,10 +19,11 @@ afterEach(async () => {
 	}
 });
 
-const createFixtureScript = async () => {
+const createFixtureScript = async (options?: { responseDelayMs?: number }) => {
 	const dir = await mkdtemp(join(tmpdir(), "awm-backend-test-"));
 	const scriptPath = join(dir, "fixture.mjs");
 	const statePath = join(dir, "fixture-state.json");
+	const responseDelayMs = options?.responseDelayMs ?? 0;
 	await writeFile(
 		scriptPath,
 		`#!/usr/bin/env node
@@ -46,22 +47,31 @@ process.stdin.on("end", () => {
 	previous.invocations.push({ args, prompt: stdin, isResume });
 	writeFileSync(statePath, JSON.stringify(previous, null, 2));
 
-	process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: threadId }) + "\\n");
-	process.stdout.write(
-		JSON.stringify({
-			type: "item.completed",
-			item: {
-				type: "agent_message",
-				text: isResume ? "fixture resume response" : "fixture response",
-			},
-		}) + "\\n",
-	);
-	process.stdout.write(
-		JSON.stringify({
-			type: "turn.completed",
-			usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 },
-		}) + "\\n",
-	);
+	const emit = () => {
+		process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: threadId }) + "\\n");
+		process.stdout.write(
+			JSON.stringify({
+				type: "item.completed",
+				item: {
+					type: "agent_message",
+					text: isResume ? "fixture resume response" : "fixture response",
+				},
+			}) + "\\n",
+		);
+		process.stdout.write(
+			JSON.stringify({
+				type: "turn.completed",
+				usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 },
+			}) + "\\n",
+		);
+	};
+
+	const delayMs = ${JSON.stringify(responseDelayMs)};
+	if (delayMs > 0) {
+		setTimeout(emit, delayMs);
+		return;
+	}
+	emit();
 });
 process.stdin.resume();
 `,
@@ -263,6 +273,91 @@ test("backend accepts an immediate follow-up after assistant_done", async () => 
 		]),
 	);
 	expect(fixtureState.invocations[1]?.prompt).toContain("follow-up");
+});
+
+test("backend preserves a user-renamed title when a running turn completes", async () => {
+	const { dir, scriptPath } = await createFixtureScript({
+		responseDelayMs: 200,
+	});
+	defaultProviderCommands.codex.command = scriptPath;
+
+	const runtime = await createBackendServer({
+		host: "127.0.0.1",
+		port: 0,
+		dataDir: join(dir, "data"),
+	});
+	runtime.server.listen(0, "127.0.0.1");
+	await once(runtime.server, "listening");
+	cleanup.push(async () => {
+		runtime.server.close();
+		await once(runtime.server, "close");
+	});
+
+	const address = runtime.server.address();
+	if (!address || typeof address === "string") {
+		throw new Error("Expected TCP address");
+	}
+	const baseUrl = `http://127.0.0.1:${address.port}`;
+
+	const createResponse = await fetch(`${baseUrl}/api/sessions`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ provider: "codex", workDir: dir }),
+	});
+	const created = await createResponse.json();
+	expect(createResponse.status).toBe(201);
+
+	const ws = new WebSocket(
+		`ws://127.0.0.1:${address.port}/api/sessions/${created.session_id}/stream`,
+	);
+	cleanup.push(async () => ws.close());
+	await once(ws, "open");
+
+	const done = new Promise<void>((resolve, reject) => {
+		ws.on("error", reject);
+		ws.on("message", (data) => {
+			const event = JSON.parse(data.toString()) as { type?: string };
+			if (event.type === "assistant_done") {
+				resolve();
+			}
+		});
+	});
+
+	const messageResponse = await fetch(
+		`${baseUrl}/api/sessions/${created.session_id}/messages`,
+		{
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ text: "hello" }),
+		},
+	);
+	expect(messageResponse.status).toBe(202);
+
+	const renameResponse = await fetch(
+		`${baseUrl}/api/sessions/${created.session_id}`,
+		{
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ title: "Pinned title" }),
+		},
+	);
+	expect(renameResponse.status).toBe(200);
+
+	await Promise.race([
+		done,
+		new Promise((_, reject) =>
+			setTimeout(
+				() => reject(new Error("Timed out waiting for assistant_done")),
+				3000,
+			),
+		),
+	]);
+
+	const sessionResponse = await fetch(
+		`${baseUrl}/api/sessions/${created.session_id}`,
+	);
+	const session = (await sessionResponse.json()) as { title: string };
+	expect(session.title).toBe("Pinned title");
 });
 
 test("backend preserves sessions across restart and recovers busy state", async () => {

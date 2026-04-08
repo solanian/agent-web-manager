@@ -99,6 +99,47 @@ const requestJson = async (path: string, init: RequestInit = {}) => {
 const toSessions = (payload: Record<string, unknown>[]): Session[] =>
 	payload.map((entry) => sessionFromApi(entry));
 
+const preferNewerSession = (
+	current: Session | undefined,
+	incoming: Session,
+) => {
+	if (!current) {
+		return incoming;
+	}
+	return current.lastUpdated.getTime() > incoming.lastUpdated.getTime()
+		? current
+		: incoming;
+};
+
+const mergeSessionsByRecency = (
+	current: Session[],
+	incoming: Session[],
+): Session[] =>
+	incoming.map((session) =>
+		preferNewerSession(
+			current.find((entry) => entry.sessionId === session.sessionId),
+			session,
+		),
+	);
+
+const mergePagedSessionsByRecency = (
+	current: Session[],
+	incoming: Session[],
+): Session[] => {
+	const merged = [...current];
+	for (const session of incoming) {
+		const existingIndex = merged.findIndex(
+			(entry) => entry.sessionId === session.sessionId,
+		);
+		if (existingIndex === -1) {
+			merged.push(session);
+			continue;
+		}
+		merged[existingIndex] = preferNewerSession(merged[existingIndex], session);
+	}
+	return merged;
+};
+
 export function useSessions(): UseSessionsReturn {
 	const [sessions, setSessions] = useState<Session[]>([]);
 	const [archivedSessions, setArchivedSessions] = useState<Session[]>([]);
@@ -123,7 +164,7 @@ export function useSessions(): UseSessionsReturn {
 				`/api/sessions?limit=${PAGE_SIZE}&offset=0${searchRef.current.trim() ? `&q=${encodeURIComponent(searchRef.current.trim())}` : ""}`,
 			)) as Record<string, unknown>[];
 			const next = toSessions(payload);
-			setSessions(next);
+			setSessions((current) => mergeSessionsByRecency(current, next));
 			setHasMoreSessions(next.length === PAGE_SIZE);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
@@ -139,7 +180,7 @@ export function useSessions(): UseSessionsReturn {
 				`/api/sessions?archived=true&limit=${PAGE_SIZE}`,
 			)) as Record<string, unknown>[];
 			const next = toSessions(payload);
-			setArchivedSessions(next);
+			setArchivedSessions((current) => mergeSessionsByRecency(current, next));
 			setHasMoreArchivedSessions(next.length === PAGE_SIZE);
 		} catch (err) {
 			console.error(err);
@@ -158,7 +199,7 @@ export function useSessions(): UseSessionsReturn {
 				`/api/sessions?limit=${PAGE_SIZE}&offset=${sessions.length}${searchRef.current.trim() ? `&q=${encodeURIComponent(searchRef.current.trim())}` : ""}`,
 			)) as Record<string, unknown>[];
 			const next = toSessions(payload);
-			setSessions((current) => [...current, ...next]);
+			setSessions((current) => mergePagedSessionsByRecency(current, next));
 			setHasMoreSessions(next.length === PAGE_SIZE);
 		} finally {
 			setIsLoadingMore(false);
@@ -179,7 +220,9 @@ export function useSessions(): UseSessionsReturn {
 				`/api/sessions?archived=true&limit=${PAGE_SIZE}&offset=${archivedSessions.length}`,
 			)) as Record<string, unknown>[];
 			const next = toSessions(payload);
-			setArchivedSessions((current) => [...current, ...next]);
+			setArchivedSessions((current) =>
+				mergePagedSessionsByRecency(current, next),
+			);
 			setHasMoreArchivedSessions(next.length === PAGE_SIZE);
 		} finally {
 			setIsLoadingMoreArchived(false);

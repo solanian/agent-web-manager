@@ -23,6 +23,7 @@ import { v4 as uuidv4 } from "uuid";
 const sessionSummary = (record: BackendSessionRecord): Session => ({
 	sessionId: record.sessionId,
 	title: record.title,
+	titleManuallySet: record.titleManuallySet,
 	lastUpdated: record.lastUpdated,
 	isRunning: record.status?.state === "busy",
 	status: record.status,
@@ -107,6 +108,7 @@ export class BackendStore {
 			title:
 				request.title?.trim() ||
 				`${providerLabel(request.provider)} · ${basename(request.workDir)}`,
+			titleManuallySet: Boolean(request.title?.trim()),
 			createdAt: now,
 			lastUpdated: now,
 			isRunning: false,
@@ -140,6 +142,7 @@ export class BackendStore {
 		const record = this.requireSession(sessionId);
 		if (patch.title?.trim()) {
 			record.title = patch.title.trim();
+			record.titleManuallySet = true;
 		}
 		if (typeof patch.archived === "boolean") {
 			record.archived = patch.archived;
@@ -169,6 +172,7 @@ export class BackendStore {
 		record.lastUpdated = nowIso();
 		const firstMessage = record.messages[0];
 		if (
+			!record.titleManuallySet &&
 			firstMessage &&
 			record.messages.length === 1 &&
 			record.title.startsWith(record.providerLabel)
@@ -231,6 +235,7 @@ export class BackendStore {
 		record.providerLabel ||= providerLabel(record.provider);
 		record.archived ??= false;
 		record.isRunning = false;
+		record.titleManuallySet ??= false;
 		if (record.status?.state === "busy") {
 			record.status = {
 				...record.status,

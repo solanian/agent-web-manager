@@ -97,6 +97,7 @@ export class BackendService {
 		if (!text) {
 			throw new Error("Message text is required");
 		}
+		const titleAtTurnStart = session.title;
 
 		const userMessage = createMessage("user", text);
 		const assistantMessage = createMessage("assistant", "");
@@ -155,11 +156,12 @@ export class BackendService {
 				}
 				if (code === 0) {
 					if (
-						finalSession.title === session.title &&
+						!finalSession.titleManuallySet &&
+						finalSession.title === titleAtTurnStart &&
 						finalSession.messages.length > 0
 					) {
 						finalSession.title = sessionTitleFromText(
-							finalSession.messages[0]?.content ?? session.title,
+							finalSession.messages[0]?.content ?? titleAtTurnStart,
 						);
 					}
 					const idleStatus = this.nextStatus(

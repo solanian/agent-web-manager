@@ -34,6 +34,7 @@ import type {
 	UploadSessionFileResponse,
 } from "@/lib/api/models";
 import { ChatWorkspace } from "./chat";
+import type { SessionNotificationSummary } from "./components/session-notifications-popover";
 import { useQueueStore } from "./queue-store";
 
 type PendingMessage = {
@@ -72,6 +73,12 @@ type ChatWorkspaceContainerProps = {
 		providerOptions: ProviderOptions,
 	) => Promise<boolean>;
 	onForkSession?: (sessionId: string, turnIndex: number) => Promise<void>;
+	notifications?: SessionNotificationSummary[];
+	unreadNotificationCount?: number;
+	browserNotificationPermission?: NotificationPermission | "unsupported";
+	onOpenNotification?: (notificationId: string, sessionId: string) => void;
+	onRemoveNotifications?: (notificationIds: string[]) => void;
+	onRequestBrowserNotifications?: () => void | Promise<void>;
 };
 
 export function ChatWorkspaceContainer({
@@ -90,6 +97,12 @@ export function ChatWorkspaceContainer({
 	onRenameSession,
 	onUpdateSessionProviderOptions,
 	onForkSession,
+	notifications = [],
+	unreadNotificationCount = 0,
+	browserNotificationPermission = "unsupported",
+	onOpenNotification,
+	onRemoveNotifications,
+	onRequestBrowserNotifications,
 }: ChatWorkspaceContainerProps): ReactElement {
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 	// Pending message state for when we need to create a session first
@@ -617,6 +630,12 @@ export function ChatWorkspaceContainer({
 			planMode={planMode}
 			onPlanModeChange={handlePlanModeChange}
 			onForkSession={onForkSession ? handleForkSession : undefined}
+			notifications={notifications}
+			unreadNotificationCount={unreadNotificationCount}
+			browserNotificationPermission={browserNotificationPermission}
+			onOpenNotification={onOpenNotification}
+			onRemoveNotifications={onRemoveNotifications}
+			onRequestBrowserNotifications={onRequestBrowserNotifications}
 		/>
 	);
 }

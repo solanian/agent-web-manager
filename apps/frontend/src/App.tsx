@@ -19,6 +19,15 @@ import type { SessionStatus } from "./lib/api/models";
 import { consumeAuthTokenFromUrl, setAuthToken } from "./lib/auth";
 import { cn } from "./lib/utils";
 
+type SessionCompletionNotification = {
+	id: string;
+	sessionId: string;
+	title: string;
+	providerLabel?: string;
+	serverName?: string;
+	createdAt: string;
+};
+
 function getSessionIdFromUrl(): string | null {
 	const params = new URLSearchParams(window.location.search);
 	return params.get("session");
@@ -61,6 +70,19 @@ function App() {
 	const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(
 		() => new Set(),
 	);
+	const [completionNotifications, setCompletionNotifications] = useState<
+		SessionCompletionNotification[]
+	>([]);
+	const [unreadNotificationIds, setUnreadNotificationIds] = useState<
+		Set<string>
+	>(() => new Set());
+	const [browserNotificationPermission, setBrowserNotificationPermission] =
+		useState<NotificationPermission | "unsupported">(() => {
+			if (typeof window === "undefined" || !("Notification" in window)) {
+				return "unsupported";
+			}
+			return window.Notification.permission;
+		});
 	const previousSessionStateRef = useRef<
 		Map<string, { isRunning: boolean; lastUpdated: number }>
 	>(new Map());
@@ -246,9 +268,73 @@ function App() {
 		});
 	}, [selectedSessionId]);
 
+	const markNotificationsRead = useCallback((notificationIds: string[]) => {
+		if (notificationIds.length === 0) {
+			return;
+		}
+		setUnreadNotificationIds((previous) => {
+			let changed = false;
+			const next = new Set(previous);
+			for (const notificationId of notificationIds) {
+				if (next.delete(notificationId)) {
+					changed = true;
+				}
+			}
+			return changed ? next : previous;
+		});
+	}, []);
+
+	const removeNotifications = useCallback((notificationIds: string[]) => {
+		if (notificationIds.length === 0) {
+			return;
+		}
+		const notificationIdSet = new Set(notificationIds);
+		setCompletionNotifications((previous) =>
+			previous.filter(
+				(notification) => !notificationIdSet.has(notification.id),
+			),
+		);
+		setUnreadNotificationIds((previous) => {
+			let changed = false;
+			const next = new Set(previous);
+			for (const notificationId of notificationIds) {
+				if (next.delete(notificationId)) {
+					changed = true;
+				}
+			}
+			return changed ? next : previous;
+		});
+	}, []);
+
+	const handleRequestBrowserNotifications = useCallback(async () => {
+		if (typeof window === "undefined" || !("Notification" in window)) {
+			toast.info("Browser notifications unavailable");
+			setBrowserNotificationPermission("unsupported");
+			return;
+		}
+		const permission = await window.Notification.requestPermission();
+		setBrowserNotificationPermission(permission);
+		if (permission === "granted") {
+			toast.success("Browser notifications enabled");
+		} else {
+			toast.info("Browser notifications not enabled");
+		}
+	}, []);
+
+	const handleOpenNotification = useCallback(
+		(notificationId: string, sessionId: string) => {
+			markNotificationsRead([notificationId]);
+			selectSession(sessionId);
+			setIsMobileSidebarOpen(false);
+		},
+		[markNotificationsRead, selectSession],
+	);
+
 	useEffect(() => {
 		setUnreadSessionIds((previous) => {
 			let next: Set<string> | null = null;
+			const newNotificationIds: string[] = [];
+			const newNotifications: SessionCompletionNotification[] = [];
 			const previousState = previousSessionStateRef.current;
 
 			for (const session of sessions) {
@@ -262,7 +348,59 @@ function App() {
 				) {
 					next ??= new Set(previous);
 					next.add(session.sessionId);
+
+					const notificationId = `${session.sessionId}:${session.lastUpdated.toISOString()}`;
+					newNotificationIds.push(notificationId);
+					newNotifications.push({
+						id: notificationId,
+						sessionId: session.sessionId,
+						title: session.title ?? "Untitled",
+						providerLabel: session.providerLabel,
+						serverName: session.serverName,
+						createdAt: session.lastUpdated.toISOString(),
+					});
+
+					const description = [session.providerLabel, session.serverName]
+						.filter(Boolean)
+						.join(" · ");
+					toast.success("Response ready", {
+						description: description
+							? `${session.title} · ${description}`
+							: session.title,
+					});
+
+					if (
+						typeof window !== "undefined" &&
+						"Notification" in window &&
+						window.Notification.permission === "granted" &&
+						document.visibilityState === "hidden"
+					) {
+						const notification = new window.Notification("Agent Web Manager", {
+							body: description
+								? `${session.title} · ${description}`
+								: session.title,
+							tag: notificationId,
+						});
+						notification.onclick = () => {
+							window.focus();
+							selectSession(session.sessionId);
+							notification.close();
+						};
+					}
 				}
+			}
+
+			if (newNotifications.length > 0) {
+				setCompletionNotifications((previousNotifications) =>
+					[...newNotifications, ...previousNotifications].slice(0, 20),
+				);
+				setUnreadNotificationIds((previousNotificationIds) => {
+					const updated = new Set(previousNotificationIds);
+					for (const id of newNotificationIds) {
+						updated.add(id);
+					}
+					return updated;
+				});
 			}
 
 			previousSessionStateRef.current = new Map(
@@ -277,7 +415,7 @@ function App() {
 
 			return next ?? previous;
 		});
-	}, [selectedSessionId, sessions]);
+	}, [selectedSessionId, selectSession, sessions]);
 
 	useEffect(() => {
 		if (sessionsError) {
@@ -338,6 +476,16 @@ function App() {
 		[archivedSessions, unreadSessionIds],
 	);
 
+	const notificationSummaries = useMemo(
+		() =>
+			completionNotifications.map((notification) => ({
+				...notification,
+				createdAtLabel: formatRelativeTime(new Date(notification.createdAt)),
+				isUnread: unreadNotificationIds.has(notification.id),
+			})),
+		[completionNotifications, unreadNotificationIds],
+	);
+
 	const renderChatPanel = () => (
 		<ChatWorkspaceContainer
 			selectedSessionId={selectedSessionId}
@@ -354,6 +502,12 @@ function App() {
 			generateTitle={generateTitle}
 			onRenameSession={renameSession}
 			onUpdateSessionProviderOptions={updateSessionProviderOptions}
+			notifications={notificationSummaries}
+			unreadNotificationCount={unreadNotificationIds.size}
+			browserNotificationPermission={browserNotificationPermission}
+			onOpenNotification={handleOpenNotification}
+			onRemoveNotifications={removeNotifications}
+			onRequestBrowserNotifications={handleRequestBrowserNotifications}
 			onForkSession={async (sessionId, turnIndex) => {
 				try {
 					await forkSession(sessionId, turnIndex);
