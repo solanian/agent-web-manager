@@ -126,7 +126,7 @@ export class BackendService {
 			this.activeRuns.delete(sessionId);
 		};
 
-		const running = runProviderTurn(updated.provider, updated, {
+		const running = runProviderTurn(updated.provider, updated, text, {
 			onStdout: async (delta) => {
 				await this.store.appendAssistantDelta(
 					sessionId,
@@ -139,6 +139,12 @@ export class BackendService {
 					messageId: assistantMessage.id,
 					delta,
 				});
+			},
+			onNativeSessionId: async (nativeSessionId) => {
+				if (updated.nativeSessionId === nativeSessionId) {
+					return;
+				}
+				await this.store.updateSession(sessionId, { nativeSessionId });
 			},
 			onExit: async (code, stderr) => {
 				releaseActiveRun();

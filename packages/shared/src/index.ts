@@ -91,6 +91,7 @@ export type Session = {
 	provider: ProviderId;
 	providerLabel: string;
 	providerOptions?: ProviderOptions;
+	nativeSessionId?: string | null;
 	serverId?: string;
 	serverName?: string;
 };
@@ -120,6 +121,7 @@ export type UpdateSessionRequest = {
 	title?: string;
 	archived?: boolean;
 	providerOptions?: ProviderOptions;
+	nativeSessionId?: string | null;
 };
 
 export type GitFileDiff = {

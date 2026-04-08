@@ -13,6 +13,7 @@ import {
 export type ProviderRunCallbacks = {
 	onStdout: (delta: string) => Promise<void> | void;
 	onStderr?: (delta: string) => void;
+	onNativeSessionId?: (nativeSessionId: string) => Promise<void> | void;
 	onExit?: (code: number | null, stderr: string) => Promise<void> | void;
 };
 
@@ -57,6 +58,52 @@ const materializeArgs = (
 	return args;
 };
 
+type CodexEvent =
+	| {
+			type: "thread.started";
+			thread_id?: string;
+	  }
+	| {
+			type: "item.completed";
+			item?: {
+				type?: string;
+				text?: string;
+			};
+	  }
+	| {
+			type: string;
+	  };
+
+const buildCodexArgs = (
+	template: ProviderCommandConfig,
+	session: BackendSessionRecord,
+	prompt: string,
+	extraArgs: string[],
+): { args: string[]; prompt: string; useJson: boolean } => {
+	const commandArgs = [...extraArgs, "--json"];
+	if (session.nativeSessionId) {
+		return {
+			args: ["exec", "resume", ...commandArgs, session.nativeSessionId, "-"],
+			prompt,
+			useJson: true,
+		};
+	}
+
+	return {
+		args: materializeArgs(
+			{
+				...template,
+				args: [...template.args, "--json"],
+			},
+			prompt,
+			extraArgs,
+			{ usePromptFromStdin: true },
+		),
+		prompt,
+		useJson: true,
+	};
+};
+
 const buildProviderOptionArgs = (
 	provider: ProviderId,
 	options?: ProviderOptions,
@@ -93,22 +140,30 @@ const buildProviderOptionArgs = (
 export const runProviderTurn = (
 	provider: ProviderId,
 	session: BackendSessionRecord,
+	turnPrompt: string,
 	callbacks: ProviderRunCallbacks,
 ): RunningProvider => {
 	const template =
 		defaultProviderCommands[provider] ?? defaultProviderCommands.codex;
-	const prompt = transcriptPrompt(
-		provider,
-		session.workDir ?? process.cwd(),
-		session.messages,
-	);
+	const extraArgs = buildProviderOptionArgs(provider, session.providerOptions);
+	const prompt =
+		provider === "codex" && session.nativeSessionId
+			? turnPrompt
+			: transcriptPrompt(
+					provider,
+					session.workDir ?? process.cwd(),
+					session.messages,
+				);
 	const usePromptFromStdin = provider === "codex";
-	const args = materializeArgs(
-		template,
-		prompt,
-		buildProviderOptionArgs(provider, session.providerOptions),
-		{ usePromptFromStdin },
-	);
+	const { args, useJson } =
+		provider === "codex"
+			? buildCodexArgs(template, session, prompt, extraArgs)
+			: {
+					args: materializeArgs(template, prompt, extraArgs, {
+						usePromptFromStdin,
+					}),
+					useJson: false,
+				};
 	const child = spawn(template.command, args, {
 		cwd: session.workDir ?? process.cwd(),
 		env: process.env,
@@ -121,10 +176,42 @@ export const runProviderTurn = (
 	}
 
 	let stderr = "";
+	let stdoutBuffer = "";
 
 	const completed = new Promise<void>((resolve, reject) => {
 		child.stdout?.on("data", async (chunk) => {
-			await callbacks.onStdout(chunk.toString());
+			const text = chunk.toString();
+			if (!useJson) {
+				await callbacks.onStdout(text);
+				return;
+			}
+
+			stdoutBuffer += text;
+			const lines = stdoutBuffer.split(/\r?\n/);
+			stdoutBuffer = lines.pop() ?? "";
+
+			for (const line of lines) {
+				if (!line.trim()) {
+					continue;
+				}
+				const event = JSON.parse(line) as CodexEvent;
+				if (
+					event.type === "thread.started" &&
+					"thread_id" in event &&
+					event.thread_id
+				) {
+					await callbacks.onNativeSessionId?.(event.thread_id);
+					continue;
+				}
+				if (
+					event.type === "item.completed" &&
+					"item" in event &&
+					event.item?.type === "agent_message" &&
+					event.item.text
+				) {
+					await callbacks.onStdout(event.item.text);
+				}
+			}
 		});
 		child.stderr?.on("data", (chunk) => {
 			const text = chunk.toString();

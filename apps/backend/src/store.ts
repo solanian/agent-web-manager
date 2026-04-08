@@ -32,6 +32,7 @@ const sessionSummary = (record: BackendSessionRecord): Session => ({
 	provider: record.provider,
 	providerLabel: record.providerLabel,
 	providerOptions: record.providerOptions,
+	nativeSessionId: record.nativeSessionId,
 });
 
 export class BackendStore {
@@ -115,6 +116,7 @@ export class BackendStore {
 			provider: request.provider,
 			providerLabel: providerLabel(request.provider),
 			providerOptions: request.providerOptions,
+			nativeSessionId: null,
 			status: {
 				sessionId,
 				state: "idle",
@@ -144,6 +146,9 @@ export class BackendStore {
 		}
 		if (patch.providerOptions !== undefined) {
 			record.providerOptions = patch.providerOptions;
+		}
+		if (patch.nativeSessionId !== undefined) {
+			record.nativeSessionId = patch.nativeSessionId;
 		}
 		record.lastUpdated = nowIso();
 		await this.persist(record);

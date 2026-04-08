@@ -8,8 +8,12 @@ import { defaultProviderCommands, listProviders } from "../src/config.js";
 import { createBackendServer } from "../src/server.js";
 
 const cleanup: Array<() => Promise<void>> = [];
+const originalCodexCommand = defaultProviderCommands.codex.command;
+const originalCodexArgs = [...defaultProviderCommands.codex.args];
 
 afterEach(async () => {
+	defaultProviderCommands.codex.command = originalCodexCommand;
+	defaultProviderCommands.codex.args = [...originalCodexArgs];
 	while (cleanup.length > 0) {
 		await cleanup.pop()?.();
 	}
@@ -18,22 +22,61 @@ afterEach(async () => {
 const createFixtureScript = async () => {
 	const dir = await mkdtemp(join(tmpdir(), "awm-backend-test-"));
 	const scriptPath = join(dir, "fixture.mjs");
+	const statePath = join(dir, "fixture-state.json");
 	await writeFile(
 		scriptPath,
-		`process.stdout.write("fixture response");\n`,
+		`#!/usr/bin/env node
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+
+const statePath = ${JSON.stringify(statePath)};
+const args = process.argv.slice(2);
+const isResume = args[0] === "exec" && args[1] === "resume";
+
+let stdin = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+	stdin += chunk;
+});
+process.stdin.on("end", () => {
+	const previous = existsSync(statePath)
+		? JSON.parse(readFileSync(statePath, "utf8"))
+		: { invocations: [], threadId: "test-thread-id" };
+	const threadId = isResume ? (args.at(-2) ?? previous.threadId) : previous.threadId;
+	previous.threadId = threadId;
+	previous.invocations.push({ args, prompt: stdin, isResume });
+	writeFileSync(statePath, JSON.stringify(previous, null, 2));
+
+	process.stdout.write(JSON.stringify({ type: "thread.started", thread_id: threadId }) + "\\n");
+	process.stdout.write(
+		JSON.stringify({
+			type: "item.completed",
+			item: {
+				type: "agent_message",
+				text: isResume ? "fixture resume response" : "fixture response",
+			},
+		}) + "\\n",
+	);
+	process.stdout.write(
+		JSON.stringify({
+			type: "turn.completed",
+			usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 },
+		}) + "\\n",
+	);
+});
+process.stdin.resume();
+`,
 		"utf8",
 	);
 	await chmod(scriptPath, 0o755);
 	cleanup.push(async () => {
 		await rm(dir, { recursive: true, force: true });
 	});
-	return { dir, scriptPath };
+	return { dir, scriptPath, statePath };
 };
 
 test("backend server creates sessions and streams provider output", async () => {
 	const { dir, scriptPath } = await createFixtureScript();
-	defaultProviderCommands.codex.command = process.execPath;
-	defaultProviderCommands.codex.args = [scriptPath, "$PROMPT"];
+	defaultProviderCommands.codex.command = scriptPath;
 
 	const runtime = await createBackendServer({
 		host: "127.0.0.1",
@@ -101,9 +144,8 @@ test("backend server creates sessions and streams provider output", async () => 
 });
 
 test("backend accepts an immediate follow-up after assistant_done", async () => {
-	const { dir, scriptPath } = await createFixtureScript();
-	defaultProviderCommands.codex.command = process.execPath;
-	defaultProviderCommands.codex.args = [scriptPath, "$PROMPT"];
+	const { dir, scriptPath, statePath } = await createFixtureScript();
+	defaultProviderCommands.codex.command = scriptPath;
 
 	const runtime = await createBackendServer({
 		host: "127.0.0.1",
@@ -205,12 +247,21 @@ test("backend accepts an immediate follow-up after assistant_done", async () => 
 			}
 		}, 25);
 	});
+
+	const fixtureState = JSON.parse(await readFile(statePath, "utf8")) as {
+		threadId: string;
+		invocations: Array<{ isResume: boolean; args: string[]; prompt: string }>;
+	};
+	expect(fixtureState.threadId).toBe("test-thread-id");
+	expect(fixtureState.invocations).toHaveLength(2);
+	expect(fixtureState.invocations[0]?.isResume).toBe(false);
+	expect(fixtureState.invocations[1]?.isResume).toBe(true);
+	expect(fixtureState.invocations[1]?.prompt).toContain("follow-up");
 });
 
 test("backend preserves sessions across restart and recovers busy state", async () => {
 	const { dir, scriptPath } = await createFixtureScript();
-	defaultProviderCommands.codex.command = process.execPath;
-	defaultProviderCommands.codex.args = [scriptPath, "$PROMPT"];
+	defaultProviderCommands.codex.command = scriptPath;
 
 	const dataDir = join(dir, "data");
 	const firstRuntime = await createBackendServer({
