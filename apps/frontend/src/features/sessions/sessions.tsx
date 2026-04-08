@@ -68,6 +68,7 @@ type SessionSummary = {
 	lastUpdated: Date;
 	providerLabel?: string;
 	serverName?: string;
+	isRunning?: boolean;
 };
 
 type ViewMode = "list" | "grouped";
@@ -334,6 +335,24 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 			[session.providerLabel, session.serverName].filter(Boolean).join(" · "),
 		[],
 	);
+
+	const renderRunningIndicator = useCallback((session: SessionSummary) => {
+		if (!session.isRunning) {
+			return null;
+		}
+
+		return (
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+						<Loader2 className="size-3 animate-spin" />
+						Running
+					</span>
+				</TooltipTrigger>
+				<TooltipContent side="right">Response in progress</TooltipContent>
+			</Tooltip>
+		);
+	}, []);
 
 	// Enhanced search: support both title and workDir
 	const filteredSessions = useMemo(() => {
@@ -1046,21 +1065,26 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 																							className="w-full text-sm font-medium text-foreground bg-background border border-input rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
 																						/>
 																					) : (
-																						<Tooltip delayDuration={500}>
-																							<TooltipTrigger asChild>
-																								<p className="text-sm font-medium text-foreground truncate">
+																						<div className="flex items-center gap-2">
+																							<Tooltip delayDuration={500}>
+																								<TooltipTrigger asChild>
+																									<p className="text-sm font-medium text-foreground truncate flex-1">
+																										{normalizeTitle(
+																											session.title,
+																										)}
+																									</p>
+																								</TooltipTrigger>
+																								<TooltipContent
+																									side="right"
+																									className="max-w-md"
+																								>
 																									{normalizeTitle(
 																										session.title,
 																									)}
-																								</p>
-																							</TooltipTrigger>
-																							<TooltipContent
-																								side="right"
-																								className="max-w-md"
-																							>
-																								{normalizeTitle(session.title)}
-																							</TooltipContent>
-																						</Tooltip>
+																								</TooltipContent>
+																							</Tooltip>
+																							{renderRunningIndicator(session)}
+																						</div>
 																					)}
 																					{!isEditing && (
 																						<>
@@ -1201,6 +1225,7 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 																		{normalizeTitle(session.title)}
 																	</TooltipContent>
 																</Tooltip>
+																{renderRunningIndicator(session)}
 																<span className="text-[10px] text-muted-foreground shrink-0">
 																	{session.updatedAt}
 																</span>

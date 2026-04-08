@@ -263,6 +263,7 @@ function App() {
 				lastUpdated: session.lastUpdated,
 				providerLabel: session.providerLabel,
 				serverName: session.serverName,
+				isRunning: session.isRunning,
 			})),
 		[sessions],
 	);
@@ -277,6 +278,7 @@ function App() {
 				lastUpdated: session.lastUpdated,
 				providerLabel: session.providerLabel,
 				serverName: session.serverName,
+				isRunning: session.isRunning,
 			})),
 		[archivedSessions],
 	);
