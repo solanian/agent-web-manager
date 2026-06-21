@@ -2,6 +2,7 @@ import {
 	AlertTriangle,
 	Archive,
 	ArchiveRestore,
+	Bot,
 	CheckSquare,
 	ChevronDown,
 	FolderTree,
@@ -67,6 +68,7 @@ type SessionSummary = {
 	workDir?: string | null;
 	lastUpdated: Date;
 	providerLabel?: string;
+	serverId?: string;
 	serverName?: string;
 	isRunning?: boolean;
 	hasUnread?: boolean;
@@ -74,22 +76,44 @@ type SessionSummary = {
 
 type ViewMode = "list" | "grouped";
 
-type SessionGroup = {
+type ProjectSessionGroup = {
 	workDir: string;
 	displayName: string;
-	sessions: SessionSummary[];
+	servers: ProjectServerSessionGroup[];
+	sessionCount: number;
+	primaryServerKey?: string;
+	latest: number;
 };
 
-const VIEW_MODE_KEY = "kimi-sessions-view-mode";
+type ProjectServerSessionGroup = {
+	serverKey: string;
+	displayName: string;
+	sessions: SessionSummary[];
+	latest: number;
+};
+
+const VIEW_MODE_KEY = "awm-sessions-view-mode-v2";
 
 /**
- * Shorten a path to fit in limited space
+ * Sidebar project groups should stay compact: show only the leaf folder,
+ * while preserving the full path in the tooltip.
  */
-function shortenPath(path: string, maxLen = 30): string {
-	if (path.length <= maxLen) return path;
-	const parts = path.split("/").filter(Boolean);
-	if (parts.length <= 2) return path;
-	return `.../${parts.slice(-2).join("/")}`;
+function leafFolderName(path: string): string {
+	const normalized = path.trim().replace(/\/+$/u, "");
+	if (!normalized) return "No project folder";
+	const parts = normalized.split("/").filter(Boolean);
+	return parts.at(-1) ?? normalized;
+}
+
+function serverGroupLabel(servers: ProjectServerSessionGroup[]): string {
+	const primary = servers[0]?.displayName ?? "Local Backend";
+	return servers.length > 1 ? `${primary} +${servers.length - 1}` : primary;
+}
+
+function projectKeyForSession(session: SessionSummary): string {
+	const trimmed = session.workDir?.trim();
+	if (!trimmed) return "__other__";
+	return trimmed.length > 1 ? trimmed.replace(/\/+$/, "") : trimmed;
 }
 
 type SessionsSidebarProps = {
@@ -117,7 +141,7 @@ type SessionsSidebarProps = {
 	onSearchQueryChange: (query: string) => void;
 	onOpenCreateDialog: () => void;
 	onOpenServersDialog?: () => void;
-	onCreateSessionInDir?: (workDir: string) => void;
+	onCreateSessionInDir?: (workDir: string, serverId?: string) => void;
 	onClose?: () => void;
 	streamStatus?: "ready" | "streaming" | "submitted" | "error";
 };
@@ -222,7 +246,7 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 	// View mode state with localStorage persistence
 	const [viewMode, setViewMode] = useState<ViewMode>(() => {
 		const stored = localStorage.getItem(VIEW_MODE_KEY);
-		return stored === "grouped" ? "grouped" : "list";
+		return stored === "list" ? "list" : "grouped";
 	});
 
 	// Archived section expanded state
@@ -370,47 +394,84 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 		);
 	}, []);
 
-	// Enhanced search: support both title and workDir
+	// Enhanced search: support title, workDir, provider, and server metadata.
 	const filteredSessions = useMemo(() => {
 		const search = sessionSearch.trim().toLowerCase();
 		if (!search) return sessions;
-		return sessions.filter(
-			(s) =>
-				s.title.toLowerCase().includes(search) ||
-				s.workDir?.toLowerCase().includes(search),
+		return sessions.filter((s) =>
+			[s.title, s.workDir ?? "", s.providerLabel ?? "", s.serverName ?? ""]
+				.join(" ")
+				.toLowerCase()
+				.includes(search),
 		);
 	}, [sessions, sessionSearch]);
 
-	// Group sessions by workDir
-	const sessionGroups = useMemo((): SessionGroup[] => {
+	const projectGroups = useMemo((): ProjectSessionGroup[] => {
 		if (viewMode !== "grouped") return [];
 
-		const groups = new Map<string, SessionSummary[]>();
+		const projectsByWorkDir = new Map<string, SessionSummary[]>();
 		for (const session of filteredSessions) {
-			const key = session.workDir || "__other__";
-			const existing = groups.get(key) || [];
-			groups.set(key, [...existing, session]);
+			const key = projectKeyForSession(session);
+			const existing = projectsByWorkDir.get(key) ?? [];
+			existing.push(session);
+			projectsByWorkDir.set(key, existing);
 		}
 
-		return Array.from(groups.entries())
-			.map(([key, items]) => ({
-				workDir: key,
-				displayName: key === "__other__" ? "Other" : shortenPath(key),
-				sessions: items,
-			}))
+		return Array.from(projectsByWorkDir.entries())
+			.map(([workDir, projectSessions]) => {
+				const sortedProjectSessions = [...projectSessions].sort(
+					(a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime(),
+				);
+				const serversByKey = new Map<
+					string,
+					{ displayName: string; sessions: SessionSummary[] }
+				>();
+
+				for (const session of sortedProjectSessions) {
+					const serverKey =
+						session.serverId || session.serverName || "__local__";
+					const existing = serversByKey.get(serverKey) ?? {
+						displayName: session.serverName || "Local Backend",
+						sessions: [],
+					};
+					existing.sessions.push(session);
+					serversByKey.set(serverKey, existing);
+				}
+
+				const servers = Array.from(serversByKey.entries())
+					.map(([serverKey, server]) => ({
+						serverKey,
+						displayName: server.displayName,
+						sessions: server.sessions,
+						latest: Math.max(
+							...server.sessions.map((session) =>
+								session.lastUpdated.getTime(),
+							),
+						),
+					}))
+					.sort((a, b) => b.latest - a.latest);
+				const latest = Math.max(
+					...sortedProjectSessions.map((session) =>
+						session.lastUpdated.getTime(),
+					),
+				);
+
+				return {
+					workDir,
+					displayName:
+						workDir === "__other__"
+							? "No project folder"
+							: leafFolderName(workDir),
+					servers,
+					sessionCount: sortedProjectSessions.length,
+					primaryServerKey: servers[0]?.serverKey,
+					latest,
+				};
+			})
 			.sort((a, b) => {
-				// "Other" always at bottom
 				if (a.workDir === "__other__") return 1;
 				if (b.workDir === "__other__") return -1;
-
-				// Sort by latest session time (newest first)
-				const aLatest = Math.max(
-					...a.sessions.map((s) => s.lastUpdated.getTime()),
-				);
-				const bLatest = Math.max(
-					...b.sessions.map((s) => s.lastUpdated.getTime()),
-				);
-				return bLatest - aLatest;
+				return b.latest - a.latest;
 			});
 	}, [filteredSessions, viewMode]);
 
@@ -678,6 +739,85 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 			: createPortal(menu, document.body);
 	};
 
+	const renderGroupedSession = (session: SessionSummary) => {
+		const isActive = session.id === selectedSessionId;
+		const isEditing = editingSessionId === session.id;
+		return (
+			<li key={session.id}>
+				<div className="flex w-full items-center gap-2">
+					<button
+						className={`flex-1 min-w-0 cursor-pointer text-left rounded-lg px-3 py-2 transition-colors ${
+							isActive ? "bg-secondary" : "hover:bg-secondary/60"
+						}`}
+						onClick={() => !isEditing && onSelectSession(session.id)}
+						onContextMenu={(event) =>
+							!isEditing && handleSessionContextMenu(event, session.id)
+						}
+						type="button"
+					>
+						{isEditing ? (
+							<input
+								value={editingTitle}
+								onChange={(e) => setEditingTitle(e.target.value)}
+								onBlur={handleSaveEdit}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										handleSaveEdit();
+									}
+									if (e.key === "Escape") {
+										e.preventDefault();
+										handleCancelEdit();
+									}
+								}}
+								onClick={(e) => e.stopPropagation()}
+								className="w-full text-sm font-medium text-foreground bg-background border border-input rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
+							/>
+						) : (
+							<div className="flex items-center gap-2">
+								<Tooltip delayDuration={500}>
+									<TooltipTrigger asChild>
+										<p className="text-sm font-medium text-foreground truncate flex-1">
+											{normalizeTitle(session.title)}
+										</p>
+									</TooltipTrigger>
+									<TooltipContent side="right" className="max-w-md">
+										{normalizeTitle(session.title)}
+									</TooltipContent>
+								</Tooltip>
+								{renderUnreadIndicator(session)}
+								{renderRunningIndicator(session)}
+							</div>
+						)}
+						{!isEditing && (
+							<>
+								<span className="mt-1 block text-[10px] text-muted-foreground">
+									{session.updatedAt}
+								</span>
+								{formatSessionMeta(session) ? (
+									<span className="mt-0.5 block text-[10px] text-muted-foreground/80">
+										{formatSessionMeta(session)}
+									</span>
+								) : null}
+							</>
+						)}
+					</button>
+					<button
+						type="button"
+						aria-label="Delete session"
+						className="md:hidden inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+						onClick={(event) => {
+							event.stopPropagation();
+							openDeleteConfirm(session);
+						}}
+					>
+						<Trash2 className="size-3.5" />
+					</button>
+				</div>
+			</li>
+		);
+	};
+
 	return (
 		<>
 			<aside className="flex h-full min-h-0 flex-col">
@@ -767,6 +907,27 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 								</TooltipContent>
 							</Tooltip>
 						</div>
+					</div>
+
+					<div className="px-2">
+						<button
+							type="button"
+							className={cn(
+								"flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+								selectedSessionId
+									? "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+									: "bg-secondary text-foreground",
+							)}
+							onClick={() => onSelectSession("")}
+						>
+							<Bot className="size-4 shrink-0" />
+							<span className="min-w-0 flex-1">
+								<span className="block truncate font-medium">Meta Agent</span>
+								<span className="block truncate text-[10px] text-muted-foreground">
+									Gateway overview and orchestration
+								</span>
+							</span>
+						</button>
 					</div>
 
 					{/* Multi-select action bar */}
@@ -940,7 +1101,7 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 								<ToggleGroupItem
 									value="grouped"
 									aria-label="Grouped view"
-									title="Grouped by folder"
+									title="Grouped by project folder"
 									className="h-8 w-8 px-0"
 								>
 									<FolderTree className="size-3.5" />
@@ -955,187 +1116,161 @@ export const SessionsSidebar = memo(function SessionsSidebarComponent({
 								<div className="flex h-full flex-col">
 									<div className="flex-1 overflow-y-auto overflow-x-hidden [-webkit-overflow-scrolling:touch] px-3 pb-4 pr-1">
 										<ul className="space-y-1">
-											{sessionGroups.map((group) => (
-												<li key={group.workDir} className="group/dir">
-													<Collapsible
-														defaultOpen={group.sessions.some(
+											{projectGroups.map((projectGroup) => {
+												const projectHasSelectedSession =
+													projectGroup.servers.some((server) =>
+														server.sessions.some(
 															(s) => s.id === selectedSessionId,
-														)}
+														),
+													);
+												const primaryServerKey = projectGroup.primaryServerKey;
+												const projectServerLabel = serverGroupLabel(
+													projectGroup.servers,
+												);
+
+												return (
+													<li
+														key={projectGroup.workDir}
+														className="group/project"
 													>
-														<div className="flex items-center">
-															<CollapsibleTrigger className="flex flex-1 min-w-0 items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground rounded-md hover:bg-secondary/50 group">
-																<ChevronDown className="size-3 transition-transform group-data-[state=closed]:-rotate-90" />
-																<Tooltip>
-																	<TooltipTrigger asChild>
-																		<span className="flex-1 truncate text-left font-medium">
-																			{group.displayName}
-																		</span>
-																	</TooltipTrigger>
-																	{group.workDir !== "__other__" && (
-																		<TooltipContent side="right">
-																			{group.workDir}
-																		</TooltipContent>
-																	)}
-																</Tooltip>
-																<span className="text-[10px] text-muted-foreground">
-																	({group.sessions.length})
-																</span>
-															</CollapsibleTrigger>
-															{group.workDir !== "__other__" &&
-																onCreateSessionInDir && (
-																	<Tooltip>
-																		<TooltipTrigger asChild>
-																			<button
-																				type="button"
-																				aria-label={`New session in ${group.displayName}`}
-																				className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 group-hover/dir:opacity-100 hover:bg-accent hover:text-foreground transition-all"
-																				onClick={(e) => {
-																					e.stopPropagation();
-																					if (hasPlatformModifier(e)) {
-																						const url = new URL(
-																							window.location.origin +
-																								window.location.pathname,
-																						);
-																						url.searchParams.set(
-																							"action",
-																							"create-in-dir",
-																						);
-																						url.searchParams.set(
-																							"workDir",
-																							group.workDir,
-																						);
-																						window.open(
-																							url.toString(),
-																							"_blank",
-																						);
-																					} else {
-																						onCreateSessionInDir(group.workDir);
-																					}
-																				}}
-																			>
-																				<Plus className="size-3.5" />
-																			</button>
-																		</TooltipTrigger>
-																		<TooltipContent
-																			className="flex flex-col items-center gap-1"
-																			side="right"
-																		>
-																			<span>New session here</span>
-																			<span className="text-xs text-muted-foreground">
-																				{newSessionShortcutModifier}+Click to
-																				open in new tab
-																			</span>
-																		</TooltipContent>
-																	</Tooltip>
-																)}
-														</div>
-														<CollapsibleContent>
-															<ul className="pl-3 space-y-1 mt-1">
-																{group.sessions.map((session) => {
-																	const isActive =
-																		session.id === selectedSessionId;
-																	const isEditing =
-																		editingSessionId === session.id;
-																	return (
-																		<li key={session.id}>
-																			<div className="flex w-full items-center gap-2">
-																				<button
-																					className={`flex-1 min-w-0 cursor-pointer text-left rounded-lg px-3 py-2 transition-colors ${
-																						isActive
-																							? "bg-secondary"
-																							: "hover:bg-secondary/60"
-																					}`}
-																					onClick={() =>
-																						!isEditing &&
-																						onSelectSession(session.id)
-																					}
-																					onContextMenu={(event) =>
-																						!isEditing &&
-																						handleSessionContextMenu(
-																							event,
-																							session.id,
-																						)
-																					}
-																					type="button"
-																				>
-																					{isEditing ? (
-																						<input
-																							value={editingTitle}
-																							onChange={(e) =>
-																								setEditingTitle(e.target.value)
-																							}
-																							onBlur={handleSaveEdit}
-																							onKeyDown={(e) => {
-																								if (e.key === "Enter") {
-																									e.preventDefault();
-																									handleSaveEdit();
-																								}
-																								if (e.key === "Escape") {
-																									e.preventDefault();
-																									handleCancelEdit();
-																								}
-																							}}
-																							onClick={(e) =>
-																								e.stopPropagation()
-																							}
-																							className="w-full text-sm font-medium text-foreground bg-background border border-input rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
-																						/>
-																					) : (
-																						<div className="flex items-center gap-2">
-																							<Tooltip delayDuration={500}>
-																								<TooltipTrigger asChild>
-																									<p className="text-sm font-medium text-foreground truncate flex-1">
-																										{normalizeTitle(
-																											session.title,
-																										)}
-																									</p>
-																								</TooltipTrigger>
-																								<TooltipContent
-																									side="right"
-																									className="max-w-md"
-																								>
-																									{normalizeTitle(
-																										session.title,
-																									)}
-																								</TooltipContent>
-																							</Tooltip>
-																							{renderUnreadIndicator(session)}
-																							{renderRunningIndicator(session)}
-																						</div>
-																					)}
-																					{!isEditing && (
-																						<>
-																							<span className="mt-1 block text-[10px] text-muted-foreground">
-																								{session.updatedAt}
-																							</span>
-																							{formatSessionMeta(session) ? (
-																								<span className="mt-0.5 block text-[10px] text-muted-foreground/80">
-																									{formatSessionMeta(session)}
-																								</span>
-																							) : null}
-																						</>
-																					)}
-																				</button>
+														<Collapsible
+															defaultOpen={projectHasSelectedSession}
+														>
+															<div className="flex items-center">
+																<CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground group">
+																	<ChevronDown className="size-3 transition-transform group-data-[state=closed]:-rotate-90" />
+																	<FolderTree className="size-3.5 shrink-0" />
+																	<span className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+																		<Tooltip>
+																			<TooltipTrigger asChild>
+																				<span className="min-w-0 truncate font-semibold">
+																					{projectGroup.displayName}
+																				</span>
+																			</TooltipTrigger>
+																			{projectGroup.workDir !== "__other__" && (
+																				<TooltipContent side="right">
+																					{projectGroup.workDir}
+																				</TooltipContent>
+																			)}
+																		</Tooltip>
+																		<Tooltip>
+																			<TooltipTrigger asChild>
+																				<span className="max-w-[96px] shrink-0 truncate rounded-full border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+																					{projectServerLabel}
+																				</span>
+																			</TooltipTrigger>
+																			<TooltipContent side="right">
+																				{projectGroup.servers
+																					.map((server) => server.displayName)
+																					.join(", ")}
+																			</TooltipContent>
+																		</Tooltip>
+																	</span>
+																	<span className="text-[10px] text-muted-foreground">
+																		({projectGroup.sessionCount})
+																	</span>
+																</CollapsibleTrigger>
+																{projectGroup.workDir !== "__other__" &&
+																	onCreateSessionInDir &&
+																	primaryServerKey && (
+																		<Tooltip>
+																			<TooltipTrigger asChild>
 																				<button
 																					type="button"
-																					aria-label="Delete session"
-																					className="md:hidden inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-																					onClick={(event) => {
-																						event.stopPropagation();
-																						openDeleteConfirm(session);
+																					aria-label={`New session in ${projectGroup.displayName}`}
+																					className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground group-hover/project:opacity-100"
+																					onClick={(e) => {
+																						e.stopPropagation();
+																						if (hasPlatformModifier(e)) {
+																							const url = new URL(
+																								window.location.origin +
+																									window.location.pathname,
+																							);
+																							url.searchParams.set(
+																								"action",
+																								"create-in-dir",
+																							);
+																							url.searchParams.set(
+																								"workDir",
+																								projectGroup.workDir,
+																							);
+																							url.searchParams.set(
+																								"serverId",
+																								primaryServerKey,
+																							);
+																							window.open(
+																								url.toString(),
+																								"_blank",
+																							);
+																						} else {
+																							onCreateSessionInDir(
+																								projectGroup.workDir,
+																								primaryServerKey,
+																							);
+																						}
 																					}}
 																				>
-																					<Trash2 className="size-3.5" />
+																					<Plus className="size-3.5" />
 																				</button>
-																			</div>
-																		</li>
-																	);
-																})}
-															</ul>
-														</CollapsibleContent>
-													</Collapsible>
-												</li>
-											))}
+																			</TooltipTrigger>
+																			<TooltipContent
+																				className="flex flex-col items-center gap-1"
+																				side="right"
+																			>
+																				<span>New session here</span>
+																				<span className="text-xs text-muted-foreground">
+																					{newSessionShortcutModifier}+Click to
+																					open in new tab
+																				</span>
+																			</TooltipContent>
+																		</Tooltip>
+																	)}
+															</div>
+															<CollapsibleContent>
+																{projectGroup.servers.length === 1 ? (
+																	<ul className="mt-1 space-y-1 pl-3">
+																		{projectGroup.servers[0]?.sessions.map(
+																			renderGroupedSession,
+																		)}
+																	</ul>
+																) : (
+																	<ul className="mt-1 space-y-1 pl-3">
+																		{projectGroup.servers.map((serverGroup) => (
+																			<li
+																				key={`${projectGroup.workDir}:${serverGroup.serverKey}`}
+																			>
+																				<Collapsible
+																					defaultOpen={serverGroup.sessions.some(
+																						(s) => s.id === selectedSessionId,
+																					)}
+																				>
+																					<CollapsibleTrigger className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground group">
+																						<ChevronDown className="size-3 transition-transform group-data-[state=closed]:-rotate-90" />
+																						<Server className="size-3.5 shrink-0" />
+																						<span className="flex-1 truncate text-left font-medium">
+																							{serverGroup.displayName}
+																						</span>
+																						<span className="text-[10px] text-muted-foreground">
+																							({serverGroup.sessions.length})
+																						</span>
+																					</CollapsibleTrigger>
+																					<CollapsibleContent>
+																						<ul className="mt-1 space-y-1 pl-3">
+																							{serverGroup.sessions.map(
+																								renderGroupedSession,
+																							)}
+																						</ul>
+																					</CollapsibleContent>
+																				</Collapsible>
+																			</li>
+																		))}
+																	</ul>
+																)}
+															</CollapsibleContent>
+														</Collapsible>
+													</li>
+												);
+											})}
 										</ul>
 										{renderLoadMore()}
 									</div>

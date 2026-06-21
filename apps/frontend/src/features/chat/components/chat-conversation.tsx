@@ -112,19 +112,22 @@ export function ChatConversation({
 					<ConversationEmptyState
 						description=""
 						icon={<Loader2Icon className="size-6 animate-spin text-primary" />}
-						title={isStartingEnvironment ? "Starting environment..." : "Preparing response..."}
+						title={
+							isStartingEnvironment
+								? "Starting environment..."
+								: "Preparing response..."
+						}
 					/>
 				) : emptyNoSessionState ? (
 					<ConversationEmptyState>
 						<div className="flex size-16 items-center justify-center rounded-2xl bg-secondary">
 							<SparklesIcon className="size-8 text-muted-foreground" />
 						</div>
-						<div className="text-center">
-							<p className="text-lg font-medium text-foreground">
-								Create a session to begin
-							</p>
+						<div className="max-w-md text-center">
+							<p className="text-lg font-medium text-foreground">Meta Agent</p>
 							<p className="mt-1 text-sm text-muted-foreground">
-								Click the + button in the sidebar to start a new session
+								Session 목록은 왼쪽 사이드바에 유지됩니다. 아래 채팅창에
+								입력하면 Meta Agent Chat 세션이 자동 생성됩니다.
 							</p>
 						</div>
 						{onCreateSession ? (

@@ -6,19 +6,86 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, join, relative, resolve, sep } from "node:path";
 import {
 	type BackendSessionRecord,
 	type CreateSessionRequest,
 	nowIso,
 	providerLabel,
 	type Session,
+	type SessionDiscoveryCandidate,
 	type SessionMessage,
 	type SessionStatus,
 	sessionTitleFromText,
 	type UpdateSessionRequest,
 } from "@agent-web-manager/shared";
 import { v4 as uuidv4 } from "uuid";
+import { discoverNativeSessions } from "./native-discovery.js";
+
+const CODEX_HISTORY_EXTENSIONS = new Set([".jsonl", ".json", ".ndjson", ".md"]);
+
+const codexHistoryRoots = (home = homedir()): string[] => [
+	resolve(home, ".codex", "sessions"),
+	resolve(home, ".codex", "tasks"),
+];
+
+const isPathInside = (path: string, root: string): boolean => {
+	const rel = relative(root, path);
+	return Boolean(rel) && !rel.startsWith("..") && !rel.includes(`..${sep}`);
+};
+
+const safeCodexHistoryPath = async (
+	candidate: string | null | undefined,
+): Promise<string | null> => {
+	if (!candidate) {
+		return null;
+	}
+	const resolved = resolve(candidate);
+	if (!CODEX_HISTORY_EXTENSIONS.has(extname(resolved).toLowerCase())) {
+		return null;
+	}
+	if (!codexHistoryRoots().some((root) => isPathInside(resolved, root))) {
+		return null;
+	}
+	const details = await stat(resolved).catch(() => null);
+	return details?.isFile() ? resolved : null;
+};
+
+const codexNativeHistoryCandidates = async (
+	record: BackendSessionRecord,
+): Promise<Array<string | null | undefined>> => {
+	const candidates: Array<string | null | undefined> = [
+		record.sessionDir,
+		record.status?.detail,
+	];
+	if (record.nativeSessionId) {
+		const discovered = await discoverNativeSessions().catch(() => []);
+		const match = discovered.find(
+			(candidate) =>
+				candidate.provider === "codex" &&
+				candidate.nativeSessionId === record.nativeSessionId,
+		);
+		candidates.push(match?.source, match?.sessionDir);
+	}
+	return candidates;
+};
+
+const deleteNativeCodexHistory = async (
+	record: BackendSessionRecord,
+): Promise<void> => {
+	if (record.provider !== "codex") {
+		return;
+	}
+	const deleted = new Set<string>();
+	for (const candidate of await codexNativeHistoryCandidates(record)) {
+		const path = await safeCodexHistoryPath(candidate);
+		if (path && !deleted.has(path)) {
+			await rm(path, { force: true });
+			deleted.add(path);
+		}
+	}
+};
 
 const sessionSummary = (record: BackendSessionRecord): Session => ({
 	sessionId: record.sessionId,
@@ -159,8 +226,82 @@ export class BackendStore {
 	}
 
 	async deleteSession(sessionId: string): Promise<void> {
+		const record = this.requireSession(sessionId);
+		await deleteNativeCodexHistory(record);
 		this.sessions.delete(sessionId);
 		await rm(join(this.sessionsDir, `${sessionId}.json`), { force: true });
+	}
+
+	async importDiscoveredSessions(
+		candidates: SessionDiscoveryCandidate[],
+	): Promise<BackendSessionRecord[]> {
+		const imported: BackendSessionRecord[] = [];
+		for (const candidate of candidates) {
+			const existing = [...this.sessions.values()].find(
+				(session) =>
+					session.provider === candidate.provider &&
+					((candidate.nativeSessionId &&
+						session.nativeSessionId === candidate.nativeSessionId) ||
+						(candidate.sessionDir &&
+							session.sessionDir === candidate.sessionDir)),
+			);
+
+			if (existing) {
+				let changed = false;
+				if (!existing.titleManuallySet && existing.title !== candidate.title) {
+					existing.title = candidate.title;
+					changed = true;
+				}
+				if (!existing.workDir && candidate.workDir) {
+					existing.workDir = candidate.workDir;
+					changed = true;
+				}
+				if (!existing.nativeSessionId && candidate.nativeSessionId) {
+					existing.nativeSessionId = candidate.nativeSessionId;
+					changed = true;
+				}
+				if (candidate.lastUpdated > existing.lastUpdated) {
+					existing.lastUpdated = candidate.lastUpdated;
+					changed = true;
+				}
+				if (changed) {
+					await this.persist(existing);
+				}
+				continue;
+			}
+
+			const now = nowIso();
+			const sessionId = uuidv4();
+			const record: BackendSessionRecord = {
+				sessionId,
+				title: candidate.title,
+				titleManuallySet: false,
+				createdAt: candidate.lastUpdated || now,
+				lastUpdated: candidate.lastUpdated || now,
+				isRunning: false,
+				archived: false,
+				workDir: candidate.workDir ?? null,
+				sessionDir: candidate.sessionDir ?? candidate.source,
+				provider: candidate.provider,
+				providerLabel: providerLabel(candidate.provider),
+				providerOptions: undefined,
+				nativeSessionId: candidate.nativeSessionId,
+				status: {
+					sessionId,
+					state: "idle",
+					seq: 1,
+					updatedAt: now,
+					reason: "discovered-native-session",
+					detail: candidate.source,
+					workerId: null,
+				},
+				messages: [],
+			};
+			this.sessions.set(sessionId, record);
+			await this.persist(record);
+			imported.push(record);
+		}
+		return imported;
 	}
 
 	async appendMessages(

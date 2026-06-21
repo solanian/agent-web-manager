@@ -3,6 +3,7 @@ import {
 	type CreateSessionRequest,
 	nowIso,
 	type SendMessageRequest,
+	type SessionDiscoveryCandidate,
 	type SessionStatus,
 	type StreamEvent,
 	sessionTitleFromText,
@@ -33,6 +34,10 @@ export class BackendService {
 
 	createSession(request: CreateSessionRequest) {
 		return this.store.createSession(request);
+	}
+
+	importDiscoveredSessions(candidates: SessionDiscoveryCandidate[]) {
+		return this.store.importDiscoveredSessions(candidates);
 	}
 
 	updateSession(sessionId: string, patch: UpdateSessionRequest) {

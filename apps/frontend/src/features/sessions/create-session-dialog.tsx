@@ -26,6 +26,8 @@ export type CreateSessionDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	servers: BackendServerRecord[];
+	initialServerId?: string;
+	initialWorkDir?: string;
 	fetchProviders: (serverId: string) => Promise<ProviderInfo[]>;
 	fetchWorkDirs: (serverId: string) => Promise<string[]>;
 	fetchStartupDir: (serverId: string) => Promise<string>;
@@ -41,6 +43,8 @@ export function CreateSessionDialog({
 	open,
 	onOpenChange,
 	servers,
+	initialServerId,
+	initialWorkDir,
 	fetchProviders,
 	fetchWorkDirs,
 	fetchStartupDir,
@@ -59,10 +63,17 @@ export function CreateSessionDialog({
 		if (!open) {
 			return;
 		}
+		if (
+			initialServerId &&
+			servers.some((server) => server.id === initialServerId)
+		) {
+			setServerId(initialServerId);
+			return;
+		}
 		if (!serverId && defaultServerId) {
 			setServerId(defaultServerId);
 		}
-	}, [defaultServerId, open, serverId]);
+	}, [defaultServerId, initialServerId, open, serverId, servers]);
 
 	useEffect(() => {
 		if (!(open && serverId)) {
@@ -82,10 +93,20 @@ export function CreateSessionDialog({
 						: (nextProviders[0]?.id ?? "codex"),
 				);
 				setKnownDirs(nextDirs);
-				setWorkDir((current) => current || startupDir || nextDirs[0] || "");
+				setWorkDir(
+					(current) =>
+						initialWorkDir || current || startupDir || nextDirs[0] || "",
+				);
 			})
 			.finally(() => setIsLoading(false));
-	}, [fetchProviders, fetchStartupDir, fetchWorkDirs, open, serverId]);
+	}, [
+		fetchProviders,
+		fetchStartupDir,
+		fetchWorkDirs,
+		initialWorkDir,
+		open,
+		serverId,
+	]);
 
 	const availableProviders = useMemo(
 		() => providers.filter((entry) => entry.available),

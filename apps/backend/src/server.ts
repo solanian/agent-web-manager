@@ -11,6 +11,7 @@ import {
 	loadBackendConfig,
 } from "./config.js";
 import { getGitDiffStats } from "./git.js";
+import { discoverNativeSessions } from "./native-discovery.js";
 import { BackendService } from "./service.js";
 import { BackendStore } from "./store.js";
 
@@ -77,6 +78,50 @@ export const createBackendServer = async (
 
 	app.get("/api/work-dirs", (_req, res) => {
 		res.json(service.recentWorkDirs());
+	});
+
+	app.get("/api/session-discovery", async (_req, res, next) => {
+		try {
+			res.json(await discoverNativeSessions());
+		} catch (error) {
+			next(error);
+		}
+	});
+
+	app.post("/api/session-discovery/import", async (_req, res, next) => {
+		try {
+			const discovered = await discoverNativeSessions();
+			const imported = await service.importDiscoveredSessions(discovered);
+			res.json({
+				discovered: discovered.length,
+				imported: imported.length,
+				sessions: imported.map((session) => ({
+					session_id: session.sessionId,
+					title: session.title,
+					last_updated: session.lastUpdated,
+					is_running: session.isRunning,
+					status: session.status
+						? {
+								session_id: session.status.sessionId,
+								state: session.status.state,
+								seq: session.status.seq,
+								worker_id: session.status.workerId,
+								reason: session.status.reason,
+								detail: session.status.detail,
+								updated_at: session.status.updatedAt,
+							}
+						: null,
+					work_dir: session.workDir,
+					session_dir: session.sessionDir,
+					archived: session.archived,
+					provider: session.provider,
+					provider_label: session.providerLabel,
+					provider_options: session.providerOptions ?? null,
+				})),
+			});
+		} catch (error) {
+			next(error);
+		}
 	});
 
 	app.get("/api/sessions", (req, res) => {

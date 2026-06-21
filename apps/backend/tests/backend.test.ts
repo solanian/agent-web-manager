@@ -1,10 +1,18 @@
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { defaultProviderCommands, listProviders } from "../src/config.js";
+import { discoverNativeSessions } from "../src/native-discovery.js";
 import { createBackendServer } from "../src/server.js";
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -18,6 +26,46 @@ afterEach(async () => {
 		await cleanup.pop()?.();
 	}
 });
+
+const codexHistoryFixture = (options: {
+	sessionId: string;
+	workDir: string;
+	message: string;
+	timestamp: string;
+	threadSource?: string;
+}) =>
+	`${JSON.stringify({
+		timestamp: options.timestamp,
+		type: "session_meta",
+		payload: {
+			id: options.sessionId,
+			timestamp: options.timestamp,
+			cwd: options.workDir,
+			originator: "Codex Desktop",
+			source: "vscode",
+			thread_source: options.threadSource ?? "user",
+		},
+	})}\n${JSON.stringify({
+		timestamp: options.timestamp,
+		type: "response_item",
+		payload: {
+			type: "message",
+			role: "developer",
+			content: [
+				{
+					type: "input_text",
+					text: "You are Codex, a coding agent based on GPT-5.",
+				},
+			],
+		},
+	})}\n${JSON.stringify({
+		timestamp: options.timestamp,
+		type: "event_msg",
+		payload: {
+			type: "user_message",
+			message: options.message,
+		},
+	})}\n`;
 
 const createFixtureScript = async (options?: { responseDelayMs?: number }) => {
 	const dir = await mkdtemp(join(tmpdir(), "awm-backend-test-"));
@@ -474,4 +522,289 @@ test("provider metadata advertises selectable options", () => {
 		providers.find((provider) => provider.id === "kimi")
 			?.supportsThinkingToggle,
 	).toBe(true);
+});
+
+test("native discovery finds local CLI session files", async () => {
+	const home = await mkdtemp(join(tmpdir(), "awm-native-home-"));
+	cleanup.push(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+	const codexDir = join(home, ".codex", "sessions", "2026", "06", "20");
+	await mkdir(codexDir, { recursive: true });
+	await writeFile(
+		join(codexDir, "rollout-2026-06-20T00-00-00-codex-native-1.jsonl"),
+		codexHistoryFixture({
+			sessionId: "codex-native-1",
+			workDir: "/workspace/project-a",
+			message: "Implement gateway enrollment",
+			timestamp: "2026-06-20T00:00:00.000Z",
+		}),
+		"utf8",
+	);
+
+	const opencodeDir = join(
+		home,
+		".local",
+		"share",
+		"opencode",
+		"storage",
+		"message",
+		"ses_opencode_fixture",
+	);
+	await mkdir(opencodeDir, { recursive: true });
+	await writeFile(
+		join(opencodeDir, "msg_user.json"),
+		JSON.stringify({
+			sessionID: "ses_opencode_fixture",
+			role: "user",
+			time: { created: 1771459200000 },
+			summary: { title: "Review opencode session index" },
+			path: { cwd: "/workspace/opencode-project" },
+		}),
+		"utf8",
+	);
+
+	const discovered = await discoverNativeSessions(home);
+	const codex = discovered.find(
+		(candidate) => candidate.nativeSessionId === "codex-native-1",
+	);
+	const opencode = discovered.find(
+		(candidate) => candidate.nativeSessionId === "ses_opencode_fixture",
+	);
+
+	expect(codex).toMatchObject({
+		provider: "codex",
+		workDir: "/workspace/project-a",
+		title: "Implement gateway enrollment",
+	});
+	expect(opencode).toMatchObject({
+		provider: "opencode",
+		workDir: "/workspace/opencode-project",
+		title: "Review opencode session index",
+	});
+});
+
+test("native discovery ignores internal prompts and non-session cache files", async () => {
+	const home = await mkdtemp(join(tmpdir(), "awm-native-noise-home-"));
+	cleanup.push(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+
+	const codexDir = join(home, ".codex", "sessions", "2026", "06", "20");
+	await mkdir(codexDir, { recursive: true });
+	await writeFile(
+		join(codexDir, "rollout-2026-06-20T00-00-01-codex-subagent.jsonl"),
+		codexHistoryFixture({
+			sessionId: "codex-subagent",
+			workDir: "/workspace/project-a",
+			message:
+				"Your task is to perform the following. Follow the instructions below exactly.",
+			timestamp: "2026-06-20T00:00:01.000Z",
+			threadSource: "subagent",
+		}),
+		"utf8",
+	);
+
+	const opencodeReminderDir = join(
+		home,
+		".local",
+		"share",
+		"opencode",
+		"storage",
+		"agent-usage-reminder",
+	);
+	await mkdir(opencodeReminderDir, { recursive: true });
+	await writeFile(
+		join(opencodeReminderDir, "ses_noise.json"),
+		JSON.stringify({ sessionID: "ses_noise", agentUsed: false }),
+		"utf8",
+	);
+
+	const cursorMcpDir = join(
+		home,
+		".cursor",
+		"projects",
+		"project-a",
+		"mcps",
+		"cursor-ide-browser",
+		"tools",
+	);
+	await mkdir(cursorMcpDir, { recursive: true });
+	await writeFile(
+		join(cursorMcpDir, "browser_lock.json"),
+		JSON.stringify({ name: "browser_lock", description: "Lock the browser" }),
+		"utf8",
+	);
+
+	const discovered = await discoverNativeSessions(home);
+	expect(discovered).toHaveLength(0);
+});
+
+test("deleting an imported Codex session removes the native Codex history file", async () => {
+	const originalHome = process.env.HOME;
+	const home = await mkdtemp(join(tmpdir(), "awm-codex-delete-home-"));
+	cleanup.push(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+	process.env.HOME = home;
+
+	try {
+		const codexDir = join(home, ".codex", "sessions", "2026", "06", "20");
+		await mkdir(codexDir, { recursive: true });
+		const historyPath = join(
+			codexDir,
+			"rollout-2026-06-20T10-00-00-codex-native-delete.jsonl",
+		);
+		await writeFile(
+			historyPath,
+			codexHistoryFixture({
+				sessionId: "codex-native-delete",
+				workDir: "/workspace/delete-me",
+				message: "Delete this native Codex history",
+				timestamp: "2026-06-20T01:00:00.000Z",
+			}),
+			"utf8",
+		);
+
+		const dataDir = join(home, "data");
+		const runtime = await createBackendServer({
+			host: "127.0.0.1",
+			port: 0,
+			dataDir,
+		});
+		runtime.server.listen(0, "127.0.0.1");
+		await once(runtime.server, "listening");
+		cleanup.push(async () => {
+			runtime.server.close();
+			await once(runtime.server, "close");
+		});
+
+		const address = runtime.server.address();
+		if (!address || typeof address === "string") {
+			throw new Error("Expected TCP address");
+		}
+		const baseUrl = `http://127.0.0.1:${address.port}`;
+
+		const importResponse = await fetch(
+			`${baseUrl}/api/session-discovery/import`,
+			{ method: "POST" },
+		);
+		expect(importResponse.status).toBe(200);
+		const imported = (await importResponse.json()) as {
+			imported: number;
+			sessions: Array<{ session_id: string; session_dir: string }>;
+		};
+		expect(imported.imported).toBe(1);
+		expect(imported.sessions[0]?.session_dir).toBe(historyPath);
+
+		const sessionId = imported.sessions[0]?.session_id;
+		expect(sessionId).toBeTruthy();
+		const recordPath = join(dataDir, "sessions", `${sessionId}.json`);
+		await expect(readFile(historyPath, "utf8")).resolves.toContain(
+			"codex-native-delete",
+		);
+		await expect(readFile(recordPath, "utf8")).resolves.toContain(
+			"codex-native-delete",
+		);
+
+		const deleteResponse = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
+			method: "DELETE",
+		});
+		expect(deleteResponse.status).toBe(204);
+		await expect(readFile(historyPath, "utf8")).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+		await expect(readFile(recordPath, "utf8")).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	} finally {
+		if (originalHome === undefined) {
+			delete process.env.HOME;
+		} else {
+			process.env.HOME = originalHome;
+		}
+	}
+});
+
+test("deleting a Codex session with nativeSessionId removes matching Codex history", async () => {
+	const originalHome = process.env.HOME;
+	const home = await mkdtemp(join(tmpdir(), "awm-codex-id-delete-home-"));
+	cleanup.push(async () => {
+		await rm(home, { recursive: true, force: true });
+	});
+	process.env.HOME = home;
+
+	try {
+		const codexDir = join(home, ".codex", "sessions", "2026", "06", "20");
+		await mkdir(codexDir, { recursive: true });
+		const historyPath = join(
+			codexDir,
+			"rollout-2026-06-20T11-00-00-codex-native-id-delete.jsonl",
+		);
+		await writeFile(
+			historyPath,
+			codexHistoryFixture({
+				sessionId: "codex-native-id-delete",
+				workDir: "/workspace/delete-by-id",
+				message: "Delete this matching native Codex history",
+				timestamp: "2026-06-20T02:00:00.000Z",
+			}),
+			"utf8",
+		);
+
+		const dataDir = join(home, "data");
+		const runtime = await createBackendServer({
+			host: "127.0.0.1",
+			port: 0,
+			dataDir,
+		});
+		runtime.server.listen(0, "127.0.0.1");
+		await once(runtime.server, "listening");
+		cleanup.push(async () => {
+			runtime.server.close();
+			await once(runtime.server, "close");
+		});
+
+		const address = runtime.server.address();
+		if (!address || typeof address === "string") {
+			throw new Error("Expected TCP address");
+		}
+		const baseUrl = `http://127.0.0.1:${address.port}`;
+
+		const createResponse = await fetch(`${baseUrl}/api/sessions`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ provider: "codex", workDir: home }),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as { session_id: string };
+
+		const patchResponse = await fetch(
+			`${baseUrl}/api/sessions/${created.session_id}`,
+			{
+				method: "PATCH",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ nativeSessionId: "codex-native-id-delete" }),
+			},
+		);
+		expect(patchResponse.status).toBe(200);
+
+		await expect(readFile(historyPath, "utf8")).resolves.toContain(
+			"codex-native-id-delete",
+		);
+		const deleteResponse = await fetch(
+			`${baseUrl}/api/sessions/${created.session_id}`,
+			{ method: "DELETE" },
+		);
+		expect(deleteResponse.status).toBe(204);
+		await expect(readFile(historyPath, "utf8")).rejects.toMatchObject({
+			code: "ENOENT",
+		});
+	} finally {
+		if (originalHome === undefined) {
+			delete process.env.HOME;
+		} else {
+			process.env.HOME = originalHome;
+		}
+	}
 });

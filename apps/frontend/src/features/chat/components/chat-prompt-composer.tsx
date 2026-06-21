@@ -17,8 +17,10 @@ import {
 	ArrowUpIcon,
 	Loader2Icon,
 	Maximize2Icon,
+	MicIcon,
 	Minimize2Icon,
 	SquareIcon,
+	Volume2Icon,
 } from "lucide-react";
 import {
 	type ChangeEvent,
@@ -27,6 +29,7 @@ import {
 	type ReactElement,
 	type SyntheticEvent,
 	useCallback,
+	useEffect,
 	useRef,
 	useState,
 } from "react";
@@ -35,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { MEDIA_CONFIG } from "@/config/media";
 import { GlobalConfigControls } from "@/features/chat/global-config-controls";
 import type { SessionFileEntry } from "@/hooks/useSessions";
+import { getApiBaseUrl } from "@/hooks/utils";
 import type { TokenUsage } from "@/hooks/wireTypes";
 import type { GitDiffStats, ProviderOptions, Session } from "@/lib/api/models";
 import { cn } from "@/lib/utils";
@@ -49,6 +53,7 @@ type ChatPromptComposerProps = {
 	onSubmit: (message: PromptInputMessage) => Promise<void>;
 	canSendMessage: boolean;
 	currentSession?: Session;
+	canStartSession?: boolean;
 	onUpdateSessionProviderOptions?: (
 		sessionId: string,
 		providerOptions: ProviderOptions,
@@ -71,6 +76,7 @@ type ChatPromptComposerProps = {
 	usedTokens?: number;
 	maxTokens?: number;
 	tokenUsage?: TokenUsage | null;
+	latestAssistantText?: string | null;
 };
 
 export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
@@ -78,11 +84,12 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 	onSubmit,
 	canSendMessage,
 	currentSession,
+	canStartSession = false,
 	onUpdateSessionProviderOptions,
 	isUploading,
 	isStreaming,
 	isAwaitingIdle,
-	isReplayingHistory,
+	isReplayingHistory: _isReplayingHistory,
 	onCancel,
 	onListSessionDirectory,
 	gitDiffStats,
@@ -94,11 +101,21 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 	usedTokens,
 	maxTokens,
 	tokenUsage,
+	latestAssistantText,
 }: ChatPromptComposerProps): ReactElement {
 	const promptController = usePromptInputController();
 	const attachmentContext = usePromptInputAttachments();
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const recorderRef = useRef<MediaRecorder | null>(null);
+	const audioStreamRef = useRef<MediaStream | null>(null);
+	const audioPlaybackRef = useRef<HTMLAudioElement | null>(null);
+	const audioUrlRef = useRef<string | null>(null);
 	const [isExpanded, setIsExpanded] = useState(false);
+	const [isRecording, setIsRecording] = useState(false);
+	const [isTranscribing, setIsTranscribing] = useState(false);
+	const [isSpeaking, setIsSpeaking] = useState(false);
+	const canUseComposer =
+		canSendMessage && Boolean(currentSession || canStartSession);
 
 	const {
 		isOpen: isMentionOpen,
@@ -193,6 +210,191 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 		setIsExpanded((prev) => !prev);
 	}, []);
 
+	const appendTranscript = useCallback(
+		(transcript: string) => {
+			const currentValue = promptController.textInput.value.trimEnd();
+			promptController.textInput.setInput(
+				currentValue ? `${currentValue} ${transcript}` : transcript,
+			);
+			textareaRef.current?.focus();
+		},
+		[promptController.textInput],
+	);
+
+	const stopAudioPlayback = useCallback(() => {
+		const currentAudio = audioPlaybackRef.current;
+		if (currentAudio) {
+			currentAudio.pause();
+			currentAudio.currentTime = 0;
+			audioPlaybackRef.current = null;
+		}
+		if (audioUrlRef.current) {
+			URL.revokeObjectURL(audioUrlRef.current);
+			audioUrlRef.current = null;
+		}
+		setIsSpeaking(false);
+	}, []);
+
+	const stopRecording = useCallback(() => {
+		const recorder = recorderRef.current;
+		if (recorder && recorder.state !== "inactive") {
+			recorder.stop();
+		}
+	}, []);
+
+	const handleToggleRecording = useCallback(async () => {
+		if (isRecording) {
+			stopRecording();
+			return;
+		}
+
+		if (
+			typeof navigator === "undefined" ||
+			!navigator.mediaDevices?.getUserMedia ||
+			typeof MediaRecorder === "undefined"
+		) {
+			toast.error("ASR unavailable", {
+				description: "This browser cannot record microphone audio.",
+			});
+			return;
+		}
+
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const chunks: BlobPart[] = [];
+			const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+				? "audio/webm"
+				: "";
+			const recorder = new MediaRecorder(
+				stream,
+				mimeType ? { mimeType } : undefined,
+			);
+			recorderRef.current = recorder;
+			audioStreamRef.current = stream;
+
+			recorder.ondataavailable = (event) => {
+				if (event.data.size > 0) {
+					chunks.push(event.data);
+				}
+			};
+			recorder.onstop = async () => {
+				setIsRecording(false);
+				for (const track of stream.getTracks()) {
+					track.stop();
+				}
+				audioStreamRef.current = null;
+				recorderRef.current = null;
+
+				if (chunks.length === 0) {
+					return;
+				}
+
+				setIsTranscribing(true);
+				try {
+					const blob = new Blob(chunks, {
+						type: mimeType || "audio/webm",
+					});
+					const response = await fetch(
+						`${getApiBaseUrl()}/api/v1/speech/transcriptions?language=ko`,
+						{
+							method: "POST",
+							headers: {
+								"content-type": blob.type,
+							},
+							body: blob,
+						},
+					);
+					if (!response.ok) {
+						const payload = await response.json().catch(() => ({}));
+						throw new Error(
+							payload.detail ??
+								payload.message ??
+								`ASR failed: ${response.status}`,
+						);
+					}
+					const payload = (await response.json()) as { text?: string };
+					const transcript = payload.text?.trim();
+					if (!transcript) {
+						toast.info("No speech detected");
+						return;
+					}
+					appendTranscript(transcript);
+				} catch (error) {
+					toast.error("ASR failed", {
+						description: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					setIsTranscribing(false);
+				}
+			};
+			recorder.start();
+			setIsRecording(true);
+		} catch (error) {
+			toast.error("Microphone unavailable", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [appendTranscript, isRecording, stopRecording]);
+
+	const handleSpeakLatest = useCallback(async () => {
+		if (isSpeaking) {
+			stopAudioPlayback();
+			return;
+		}
+
+		const text = latestAssistantText?.trim();
+		if (!text) {
+			toast.info("No assistant response to read");
+			return;
+		}
+
+		setIsSpeaking(true);
+		try {
+			const response = await fetch(`${getApiBaseUrl()}/api/v1/speech/speech`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ text, language: "ko" }),
+			});
+			if (!response.ok) {
+				const payload = await response.json().catch(() => ({}));
+				throw new Error(
+					payload.detail ?? payload.message ?? `TTS failed: ${response.status}`,
+				);
+			}
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			audioUrlRef.current = url;
+			const audio = new Audio(url);
+			audioPlaybackRef.current = audio;
+			audio.onended = stopAudioPlayback;
+			audio.onerror = () => {
+				stopAudioPlayback();
+				toast.error("TTS playback failed");
+			};
+			await audio.play();
+		} catch (error) {
+			stopAudioPlayback();
+			toast.error("TTS failed", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [isSpeaking, latestAssistantText, stopAudioPlayback]);
+
+	useEffect(
+		() => () => {
+			if (recorderRef.current && recorderRef.current.state !== "inactive") {
+				recorderRef.current.stop();
+			}
+			for (const track of audioStreamRef.current?.getTracks() ?? []) {
+				track.stop();
+			}
+			stopAudioPlayback();
+		},
+		[stopAudioPlayback],
+	);
+
 	return (
 		<div className="w-full">
 			<PromptToolbar
@@ -223,7 +425,7 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 					<button
 						type="button"
 						onClick={handleToggleExpand}
-						disabled={!(canSendMessage && currentSession)}
+						disabled={!canUseComposer}
 						className="absolute top-2 right-2 z-10 p-1 cursor-pointer rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors disabled:opacity-50 disabled:pointer-events-none"
 						aria-label={isExpanded ? "Collapse input" : "Expand input"}
 					>
@@ -257,17 +459,13 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								)}
 								placeholder={
 									!currentSession
-										? "Create a session to start..."
+										? "Ask Meta Agent. A chat session will be created automatically..."
 										: isAwaitingIdle || isStreaming
-												? "Add a follow-up message..."
-												: "Ask anything, / for commands, @ to mention files"
+											? "Add a follow-up message..."
+											: "Ask anything, / for commands, @ to mention files"
 								}
 								aria-busy={isUploading}
-								disabled={
-									!canSendMessage ||
-									isUploading ||
-									!currentSession
-								}
+								disabled={!canUseComposer || isUploading}
 								onChange={handleTextareaChange}
 								onSelect={handleTextareaSelection}
 								onKeyUp={handleTextareaSelection}
@@ -306,11 +504,55 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 				</PromptInputBody>
 				<PromptInputFooter className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1 border-none bg-transparent shadow-none overflow-hidden">
 					<PromptInputTools className="min-w-0 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+						<PromptInputButton
+							aria-label={
+								isRecording ? "Stop ASR recording" : "Start ASR recording"
+							}
+							title={
+								isRecording ? "Stop ASR recording" : "Record Korean speech"
+							}
+							type="button"
+							disabled={!canUseComposer || isTranscribing}
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								void handleToggleRecording();
+							}}
+							className={cn(
+								"size-9 border-0",
+								isRecording && "animate-pulse bg-accent text-accent-foreground",
+							)}
+						>
+							{isTranscribing ? (
+								<Loader2Icon className="size-4 animate-spin" />
+							) : (
+								<MicIcon className="size-4" />
+							)}
+						</PromptInputButton>
+						<PromptInputButton
+							aria-label={isSpeaking ? "Stop TTS" : "Read latest response"}
+							title={isSpeaking ? "Stop TTS" : "Read latest response with TTS"}
+							type="button"
+							disabled={!isSpeaking && !latestAssistantText?.trim()}
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								void handleSpeakLatest();
+							}}
+							className={cn(
+								"size-9 border-0",
+								isSpeaking && "animate-pulse bg-accent text-accent-foreground",
+							)}
+						>
+							{isSpeaking ? (
+								<SquareIcon className="size-4" />
+							) : (
+								<Volume2Icon className="size-4" />
+							)}
+						</PromptInputButton>
 						<GlobalConfigControls
 							currentSession={currentSession}
-							onUpdateSessionProviderOptions={
-								onUpdateSessionProviderOptions
-							}
+							onUpdateSessionProviderOptions={onUpdateSessionProviderOptions}
 							planMode={planMode}
 							onPlanModeChange={onPlanModeChange}
 						/>
@@ -332,24 +574,19 @@ export const ChatPromptComposer = memo(function ChatPromptComposerComponent({
 								<SquareIcon className="size-4" />
 							</PromptInputButton>
 							<PromptInputSubmit
-									aria-label="Queue message"
-									size="icon-sm"
-									variant="outline"
-									className="shrink-0"
-									disabled={!(canSendMessage && currentSession)}
-								>
-									<ArrowUpIcon className="size-4" />
-								</PromptInputSubmit>
+								aria-label="Queue message"
+								size="icon-sm"
+								variant="outline"
+								className="shrink-0"
+								disabled={!canUseComposer}
+							>
+								<ArrowUpIcon className="size-4" />
+							</PromptInputSubmit>
 						</div>
 					) : (
 						<PromptInputSubmit
 							status={isUploading ? "submitted" : status}
-							disabled={
-								!canSendMessage ||
-								isAwaitingIdle ||
-								isUploading ||
-								!currentSession
-							}
+							disabled={!canUseComposer || isAwaitingIdle || isUploading}
 							className="shrink-0 justify-self-end"
 						/>
 					)}

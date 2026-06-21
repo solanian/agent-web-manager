@@ -77,6 +77,39 @@ type CodexEvent =
 const stripPromptPlaceholderArgs = (args: string[]): string[] =>
 	args.filter((arg) => !arg.includes("$PROMPT"));
 
+const providerEnvPrefixes: Record<ProviderId, string> = {
+	codex: "CODEX",
+	claude: "CLAUDE",
+	kimi: "KIMI",
+	antigravity: "ANTIGRAVITY",
+	gemini: "GEMINI",
+	cursor: "CURSOR",
+	opencode: "OPENCODE",
+	pi: "PI",
+	"oh-my-pi": "OH_MY_PI",
+	openclaw: "OPENCLAW",
+	hermes: "HERMES",
+};
+
+const defaultResumeArgTemplates: Partial<Record<ProviderId, string[]>> = {
+	claude: ["--resume", "$SESSION"],
+	opencode: ["--session", "$SESSION"],
+};
+
+const buildNativeResumeArgs = (
+	provider: ProviderId,
+	nativeSessionId?: string | null,
+): string[] => {
+	if (!nativeSessionId) {
+		return [];
+	}
+	const envKey = `AWM_${providerEnvPrefixes[provider]}_RESUME_ARGS_JSON`;
+	const template = process.env[envKey]
+		? (JSON.parse(process.env[envKey] ?? "[]") as string[])
+		: (defaultResumeArgTemplates[provider] ?? []);
+	return template.map((arg) => arg.replaceAll("$SESSION", nativeSessionId));
+};
+
 const buildCodexArgs = (
 	template: ProviderCommandConfig,
 	session: BackendSessionRecord,
@@ -161,13 +194,22 @@ export const runProviderTurn = (
 					session.messages,
 				);
 	const usePromptFromStdin = provider === "codex";
+	const nativeResumeArgs = buildNativeResumeArgs(
+		provider,
+		provider === "codex" ? null : session.nativeSessionId,
+	);
 	const { args, useJson } =
 		provider === "codex"
 			? buildCodexArgs(template, session, prompt, extraArgs)
 			: {
-					args: materializeArgs(template, prompt, extraArgs, {
-						usePromptFromStdin,
-					}),
+					args: materializeArgs(
+						template,
+						prompt,
+						[...nativeResumeArgs, ...extraArgs],
+						{
+							usePromptFromStdin,
+						},
+					),
 					useJson: false,
 				};
 	const child = spawn(template.command, args, {

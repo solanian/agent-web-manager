@@ -8,6 +8,7 @@ import { ResizablePanel, ResizablePanelGroup } from "./components/ui/resizable";
 import { Toaster } from "./components/ui/sonner";
 import { ThemeToggle } from "./components/ui/theme-toggle";
 import { ChatWorkspaceContainer } from "./features/chat/chat-workspace-container";
+import { MetaAgentPanel } from "./features/meta-agent/meta-agent-panel";
 import { ServerManagerDialog } from "./features/servers/server-manager-dialog";
 import { CreateSessionDialog } from "./features/sessions/create-session-dialog";
 import { SessionsSidebar } from "./features/sessions/sessions";
@@ -15,7 +16,7 @@ import { useTheme } from "./hooks/use-theme";
 import { useBackendServers } from "./hooks/useBackendServers";
 import { useSessions } from "./hooks/useSessions";
 import { formatRelativeTime } from "./hooks/utils";
-import type { SessionStatus } from "./lib/api/models";
+import type { ProviderId, SessionStatus } from "./lib/api/models";
 import { consumeAuthTokenFromUrl, setAuthToken } from "./lib/auth";
 import { cn } from "./lib/utils";
 
@@ -63,6 +64,10 @@ function App() {
 		return window.matchMedia("(min-width: 1024px)").matches;
 	});
 	const [showCreateDialog, setShowCreateDialog] = useState(false);
+	const [createSessionDefaults, setCreateSessionDefaults] = useState<{
+		serverId?: string;
+		workDir?: string;
+	}>({});
 	const [showServersDialog, setShowServersDialog] = useState(false);
 	const [streamStatus, setStreamStatus] = useState<ChatStatus>("ready");
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -91,6 +96,7 @@ function App() {
 		sessions,
 		archivedSessions,
 		selectedSessionId,
+		isLoading,
 		createSession,
 		deleteSession,
 		selectSession,
@@ -125,16 +131,22 @@ function App() {
 
 	const {
 		servers,
+		enrollmentInfo,
 		addServer,
 		deleteServer,
+		importServerSessions,
 		fetchProviders,
 		fetchWorkDirs,
 		fetchStartupDir,
+		refreshServers,
 	} = serversHook;
 
 	const currentSession = useMemo(
-		() => sessions.find((session) => session.sessionId === selectedSessionId),
-		[sessions, selectedSessionId],
+		() =>
+			[...sessions, ...archivedSessions].find(
+				(session) => session.sessionId === selectedSessionId,
+			),
+		[archivedSessions, sessions, selectedSessionId],
 	);
 
 	useEffect(() => {
@@ -149,19 +161,31 @@ function App() {
 		const action = params.get("action");
 		if (action === "create") {
 			setShowCreateDialog(true);
+		} else if (action === "create-in-dir") {
+			setCreateSessionDefaults({
+				serverId: params.get("serverId") ?? undefined,
+				workDir: params.get("workDir") ?? undefined,
+			});
+			setShowCreateDialog(true);
 		} else {
 			return;
 		}
 		params.delete("action");
+		params.delete("serverId");
+		params.delete("workDir");
 		const url = new URL(window.location.href);
 		url.search = params.toString();
 		window.history.replaceState({}, "", url.toString());
 	}, []);
 
-	const handleOpenCreateDialog = useCallback(() => {
-		setShowCreateDialog(true);
-		setIsMobileSidebarOpen(false);
-	}, []);
+	const handleOpenCreateDialog = useCallback(
+		(defaults: { serverId?: string; workDir?: string } = {}) => {
+			setCreateSessionDefaults(defaults);
+			setShowCreateDialog(true);
+			setIsMobileSidebarOpen(false);
+		},
+		[],
+	);
 
 	const handleOpenServersDialog = useCallback(() => {
 		setShowServersDialog(true);
@@ -185,6 +209,25 @@ function App() {
 		setIsSidebarAnimating(true);
 		sidebarPanelRef.current?.expand();
 	}, []);
+
+	const handleToggleSessionsSidebar = useCallback(() => {
+		if (isDesktop) {
+			if (isSidebarCollapsed) {
+				handleExpandSidebar();
+			} else {
+				handleCollapseSidebar();
+			}
+			return;
+		}
+
+		handleOpenMobileSidebar();
+	}, [
+		handleCollapseSidebar,
+		handleExpandSidebar,
+		handleOpenMobileSidebar,
+		isDesktop,
+		isSidebarCollapsed,
+	]);
 
 	const handleSidebarResize = useCallback((panelSize: PanelSize) => {
 		const collapsed = panelSize.inPixels <= SIDEBAR_COLLAPSED_SIZE + 1;
@@ -253,6 +296,60 @@ function App() {
 		}
 		updateUrlWithSession(selectedSessionId || null);
 	}, [selectedSessionId]);
+	const pendingMissingSessionProbeRef = useRef<string | null>(null);
+	const handleMissingSelectedSession = useCallback(
+		(missingSessionId: string) => {
+			if (selectedSessionId && selectedSessionId !== missingSessionId) {
+				return;
+			}
+			const fallbackSessionId =
+				sessions.find((session) => session.sessionId !== missingSessionId)
+					?.sessionId ?? "";
+			selectSession(fallbackSessionId);
+			toast.info("Session no longer exists", {
+				description: fallbackSessionId
+					? "Opened the latest available session instead."
+					: "Cleared the stale session from the URL.",
+			});
+		},
+		[selectedSessionId, selectSession, sessions],
+	);
+
+	useEffect(() => {
+		if (
+			!hasRestoredFromUrlRef.current ||
+			!selectedSessionId ||
+			currentSession ||
+			isLoading ||
+			sessionsError
+		) {
+			return;
+		}
+		if (pendingMissingSessionProbeRef.current === selectedSessionId) {
+			return;
+		}
+		pendingMissingSessionProbeRef.current = selectedSessionId;
+		let cancelled = false;
+		void refreshSession(selectedSessionId).then((session) => {
+			if (cancelled) {
+				return;
+			}
+			pendingMissingSessionProbeRef.current = null;
+			if (!session) {
+				handleMissingSelectedSession(selectedSessionId);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		currentSession,
+		handleMissingSelectedSession,
+		isLoading,
+		refreshSession,
+		selectedSessionId,
+		sessionsError,
+	]);
 
 	useEffect(() => {
 		if (!selectedSessionId) {
@@ -453,6 +550,7 @@ function App() {
 				workDir: session.workDir,
 				lastUpdated: session.lastUpdated,
 				providerLabel: session.providerLabel,
+				serverId: session.serverId,
 				serverName: session.serverName,
 				isRunning: session.isRunning,
 				hasUnread: unreadSessionIds.has(session.sessionId),
@@ -469,6 +567,7 @@ function App() {
 				workDir: session.workDir,
 				lastUpdated: session.lastUpdated,
 				providerLabel: session.providerLabel,
+				serverId: session.serverId,
 				serverName: session.serverName,
 				isRunning: session.isRunning,
 				hasUnread: unreadSessionIds.has(session.sessionId),
@@ -486,39 +585,106 @@ function App() {
 		[completionNotifications, unreadNotificationIds],
 	);
 
-	const renderChatPanel = () => (
-		<ChatWorkspaceContainer
-			selectedSessionId={selectedSessionId}
-			currentSession={currentSession}
-			sessionDescription={currentSession?.title}
-			onSessionStatus={handleSessionStatus}
-			onStreamStatusChange={setStreamStatus}
-			uploadSessionFile={uploadSessionFile}
-			onListSessionDirectory={listSessionDirectory}
-			onGetSessionFileUrl={getSessionFileUrl}
-			onGetSessionFile={getSessionFile}
-			onOpenCreateDialog={handleOpenCreateDialog}
-			onOpenSidebar={handleOpenMobileSidebar}
-			generateTitle={generateTitle}
-			onRenameSession={renameSession}
-			onUpdateSessionProviderOptions={updateSessionProviderOptions}
-			notifications={notificationSummaries}
-			unreadNotificationCount={unreadNotificationIds.size}
-			browserNotificationPermission={browserNotificationPermission}
-			onOpenNotification={handleOpenNotification}
-			onRemoveNotifications={removeNotifications}
-			onRequestBrowserNotifications={handleRequestBrowserNotifications}
-			onForkSession={async (sessionId, turnIndex) => {
-				try {
-					await forkSession(sessionId, turnIndex);
-				} catch (error) {
-					toast.error("Fork is not available yet", {
-						description: error instanceof Error ? error.message : String(error),
-					});
-				}
-			}}
-		/>
-	);
+	const handleCreateSessionForMessage = useCallback(async () => {
+		const server = servers[0];
+		if (!server) {
+			setShowServersDialog(true);
+			toast.error("No backend server available", {
+				description:
+					"Add or install a backend server before starting Meta Agent chat.",
+			});
+			return null;
+		}
+
+		try {
+			const [providers, startupDir] = await Promise.all([
+				fetchProviders(server.id),
+				fetchStartupDir(server.id).catch(() => "."),
+			]);
+			const preferredProvider =
+				providers.find(
+					(provider) => provider.available && provider.id === "codex",
+				) ??
+				providers.find((provider) => provider.available) ??
+				providers[0];
+
+			if (!preferredProvider) {
+				toast.error("No provider available", {
+					description: `${server.name} did not report an available CLI provider.`,
+				});
+				return null;
+			}
+
+			const session = await createSession({
+				serverId: server.id,
+				provider: preferredProvider.id as ProviderId,
+				workDir: startupDir || ".",
+				title: "Meta Agent Chat",
+			});
+			return session.sessionId;
+		} catch (error) {
+			toast.error("Unable to start Meta Agent chat", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+			return null;
+		}
+	}, [createSession, fetchProviders, fetchStartupDir, servers]);
+
+	const renderChatPanel = () => {
+		if (!selectedSessionId && !currentSession) {
+			return (
+				<MetaAgentPanel
+					sessions={sessionSummaries}
+					servers={servers}
+					onSelectSession={(sessionId) => {
+						selectSession(sessionId);
+						setIsMobileSidebarOpen(false);
+					}}
+					onOpenServersDialog={handleOpenServersDialog}
+					onRefreshSessions={handleRefreshSessions}
+					onRefreshServers={refreshServers}
+				/>
+			);
+		}
+
+		return (
+			<ChatWorkspaceContainer
+				selectedSessionId={selectedSessionId}
+				currentSession={currentSession}
+				sessionDescription={currentSession?.title}
+				onSessionStatus={handleSessionStatus}
+				onStreamStatusChange={setStreamStatus}
+				uploadSessionFile={uploadSessionFile}
+				onListSessionDirectory={listSessionDirectory}
+				onGetSessionFileUrl={getSessionFileUrl}
+				onGetSessionFile={getSessionFile}
+				onOpenCreateDialog={handleOpenCreateDialog}
+				onCreateSessionForMessage={handleCreateSessionForMessage}
+				onOpenSidebar={handleToggleSessionsSidebar}
+				sidebarToggleState={isDesktop && !isSidebarCollapsed ? "close" : "open"}
+				generateTitle={generateTitle}
+				onRenameSession={renameSession}
+				onUpdateSessionProviderOptions={updateSessionProviderOptions}
+				notifications={notificationSummaries}
+				unreadNotificationCount={unreadNotificationIds.size}
+				browserNotificationPermission={browserNotificationPermission}
+				onOpenNotification={handleOpenNotification}
+				onRemoveNotifications={removeNotifications}
+				onRequestBrowserNotifications={handleRequestBrowserNotifications}
+				onMissingSession={handleMissingSelectedSession}
+				onForkSession={async (sessionId, turnIndex) => {
+					try {
+						await forkSession(sessionId, turnIndex);
+					} catch (error) {
+						toast.error("Fork is not available yet", {
+							description:
+								error instanceof Error ? error.message : String(error),
+						});
+					}
+				}}
+			/>
+		);
+	};
 
 	return (
 		<PromptInputProvider>
@@ -598,7 +764,9 @@ function App() {
 										onLoadMoreSessions={loadMoreSessions}
 										onLoadMoreArchivedSessions={loadMoreArchivedSessions}
 										onOpenCreateDialog={handleOpenCreateDialog}
-										onCreateSessionInDir={() => handleOpenCreateDialog()}
+										onCreateSessionInDir={(workDir, serverId) =>
+											handleOpenCreateDialog({ workDir, serverId })
+										}
 										onOpenServersDialog={handleOpenServersDialog}
 										streamStatus={streamStatus}
 										selectedSessionId={selectedSessionId}
@@ -647,8 +815,15 @@ function App() {
 
 			<CreateSessionDialog
 				open={showCreateDialog}
-				onOpenChange={setShowCreateDialog}
+				onOpenChange={(open) => {
+					setShowCreateDialog(open);
+					if (!open) {
+						setCreateSessionDefaults({});
+					}
+				}}
 				servers={servers}
+				initialServerId={createSessionDefaults.serverId}
+				initialWorkDir={createSessionDefaults.workDir}
 				fetchProviders={fetchProviders}
 				fetchWorkDirs={fetchWorkDirs}
 				fetchStartupDir={fetchStartupDir}
@@ -661,6 +836,7 @@ function App() {
 				open={showServersDialog}
 				onOpenChange={setShowServersDialog}
 				servers={servers}
+				enrollmentInfo={enrollmentInfo}
 				onAddServer={async (input) => {
 					await addServer(input);
 					toast.success("Backend added");
@@ -668,6 +844,13 @@ function App() {
 				onDeleteServer={async (serverId) => {
 					await deleteServer(serverId);
 					toast.success("Backend removed");
+				}}
+				onImportSessions={async (serverId) => {
+					const result = await importServerSessions(serverId);
+					await refreshSessions();
+					toast.success("Native session scan complete", {
+						description: `${result.discovered} discovered, ${result.imported} imported`,
+					});
 				}}
 			/>
 
@@ -702,7 +885,9 @@ function App() {
 								onLoadMoreSessions={loadMoreSessions}
 								onLoadMoreArchivedSessions={loadMoreArchivedSessions}
 								onOpenCreateDialog={handleOpenCreateDialog}
-								onCreateSessionInDir={() => handleOpenCreateDialog()}
+								onCreateSessionInDir={(workDir, serverId) =>
+									handleOpenCreateDialog({ workDir, serverId })
+								}
 								onOpenServersDialog={handleOpenServersDialog}
 								onClose={handleCloseMobileSidebar}
 								streamStatus={streamStatus}

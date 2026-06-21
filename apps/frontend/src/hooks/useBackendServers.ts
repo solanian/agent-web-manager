@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SlashCommandDef } from "@/hooks/useSessionStream";
-import type { BackendServerRecord, ProviderInfo } from "@/lib/api/models";
+import type {
+	BackendServerRecord,
+	GatewayEnrollmentInfo,
+	ProviderInfo,
+} from "@/lib/api/models";
 import { getAuthHeader } from "@/lib/auth";
 import { getApiBaseUrl } from "./utils";
 
@@ -27,6 +31,8 @@ const requestJson = async (path: string, init: RequestInit = {}) => {
 
 export function useBackendServers() {
 	const [servers, setServers] = useState<BackendServerRecord[]>([]);
+	const [enrollmentInfo, setEnrollmentInfo] =
+		useState<GatewayEnrollmentInfo | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +40,12 @@ export function useBackendServers() {
 		setIsLoading(true);
 		setError(null);
 		try {
-			setServers((await requestJson("/api/servers")) as BackendServerRecord[]);
+			const [serversPayload, enrollmentPayload] = await Promise.all([
+				requestJson("/api/servers"),
+				requestJson("/api/enrollment"),
+			]);
+			setServers(serversPayload as BackendServerRecord[]);
+			setEnrollmentInfo(enrollmentPayload as GatewayEnrollmentInfo);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
 		} finally {
@@ -63,6 +74,13 @@ export function useBackendServers() {
 			method: "DELETE",
 		});
 		setServers((current) => current.filter((server) => server.id !== serverId));
+	}, []);
+
+	const importServerSessions = useCallback(async (serverId: string) => {
+		return (await requestJson(
+			`/api/servers/${encodeURIComponent(serverId)}/session-discovery/import`,
+			{ method: "POST" },
+		)) as { discovered: number; imported: number };
 	}, []);
 
 	const fetchProviders = useCallback(
@@ -106,11 +124,13 @@ export function useBackendServers() {
 
 	return {
 		servers,
+		enrollmentInfo,
 		isLoading,
 		error,
 		refreshServers,
 		addServer,
 		deleteServer,
+		importServerSessions,
 		fetchProviders,
 		fetchProviderCommands,
 		fetchWorkDirs,

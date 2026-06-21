@@ -2,6 +2,7 @@ import {
 	Bell,
 	ChevronsDownUpIcon,
 	ChevronsUpDownIcon,
+	PanelLeftClose,
 	PanelLeftOpen,
 	PanelRightClose,
 	PanelRightOpen,
@@ -36,6 +37,7 @@ type ChatWorkspaceHeaderProps = {
 	onToggleFilesPanel?: () => void;
 	onOpenSearch: () => void;
 	onOpenSidebar?: () => void;
+	sidebarToggleState?: "open" | "close";
 	onRenameSession?: (sessionId: string, newTitle: string) => Promise<boolean>;
 	notifications?: SessionNotificationSummary[];
 	unreadNotificationCount?: number;
@@ -56,6 +58,7 @@ export function ChatWorkspaceHeader({
 	onToggleFilesPanel,
 	onOpenSearch,
 	onOpenSidebar,
+	sidebarToggleState = "open",
 	onRenameSession,
 	notifications = [],
 	unreadNotificationCount = 0,
@@ -65,6 +68,12 @@ export function ChatWorkspaceHeader({
 	onRequestBrowserNotifications,
 }: ChatWorkspaceHeaderProps) {
 	const searchShortcutModifier = isMacOS() ? "Cmd" : "Ctrl";
+	const SidebarIcon =
+		sidebarToggleState === "close" ? PanelLeftClose : PanelLeftOpen;
+	const sidebarLabel =
+		sidebarToggleState === "close"
+			? "Collapse sessions sidebar"
+			: "Open sessions sidebar";
 
 	// Editing state
 	const [isEditing, setIsEditing] = useState(false);
@@ -105,11 +114,11 @@ export function ChatWorkspaceHeader({
 				{onOpenSidebar ? (
 					<button
 						type="button"
-						aria-label="Open sessions sidebar"
-						className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground lg:hidden"
+						aria-label={sidebarLabel}
+						className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
 						onClick={onOpenSidebar}
 					>
-						<PanelLeftOpen className="size-4" />
+						<SidebarIcon className="size-4" />
 					</button>
 				) : null}
 				<div className="min-w-0 flex-1">
@@ -171,14 +180,10 @@ export function ChatWorkspaceHeader({
 							<SessionNotificationsPopover
 								notifications={notifications}
 								unreadCount={unreadNotificationCount}
-								browserNotificationPermission={
-									browserNotificationPermission
-								}
+								browserNotificationPermission={browserNotificationPermission}
 								onOpenNotification={onOpenNotification}
 								onRemoveNotifications={onRemoveNotifications}
-								onRequestBrowserNotifications={
-									onRequestBrowserNotifications
-								}
+								onRequestBrowserNotifications={onRequestBrowserNotifications}
 							/>
 						) : (
 							<Tooltip>

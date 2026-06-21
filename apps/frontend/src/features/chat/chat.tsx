@@ -26,8 +26,8 @@ import {
 	QuestionDialog,
 	usePendingQuestion,
 } from "./components/question-dialog";
-import type { SessionNotificationSummary } from "./components/session-notifications-popover";
 import { SessionFilesPanel } from "./components/session-files-panel";
+import type { SessionNotificationSummary } from "./components/session-notifications-popover";
 
 // Re-export LiveMessage type from hooks for backward compatibility
 export type { LiveMessage } from "@/hooks/types";
@@ -75,8 +75,9 @@ type ChatWorkspaceProps = {
 	isAwaitingFirstResponse?: boolean;
 	/** Create a new session when none is selected */
 	onCreateSession?: () => void;
-	/** Open sessions sidebar (mobile) */
+	/** Open/toggle sessions sidebar */
 	onOpenSidebar?: () => void;
+	sidebarToggleState?: "open" | "close";
 	/** Rename session */
 	onRenameSession?: (sessionId: string, newTitle: string) => Promise<boolean>;
 	onUpdateSessionProviderOptions?: (
@@ -121,9 +122,10 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 	onGetSessionFile: _onGetSessionFile,
 	onCancel,
 	isUploadingFiles = false,
-	isAwaitingFirstResponse = false,
+	isAwaitingFirstResponse: _isAwaitingFirstResponse = false,
 	onCreateSession,
 	onOpenSidebar,
+	sidebarToggleState = "open",
 	onRenameSession,
 	onUpdateSessionProviderOptions,
 	maxContextSize,
@@ -170,6 +172,16 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 			onListSessionDirectory &&
 			onGetSessionFileUrl,
 	);
+	const isMetaAgentView = !selectedSessionId && !currentSession;
+	const latestAssistantText = [...messages]
+		.reverse()
+		.find(
+			(message) =>
+				message.role === "assistant" &&
+				message.variant !== "tool" &&
+				Boolean(message.content?.trim()),
+		)
+		?.content?.trim();
 
 	useEffect(() => {
 		if (!(selectedSessionId && currentSession?.workDir)) {
@@ -286,6 +298,7 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 					}
 					onOpenSearch={() => setIsSearchOpen(true)}
 					onOpenSidebar={onOpenSidebar}
+					sidebarToggleState={sidebarToggleState}
 					onRenameSession={onRenameSession}
 					notifications={notifications}
 					unreadNotificationCount={unreadNotificationCount}
@@ -324,9 +337,9 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 							canRespondToApproval={Boolean(onApprovalResponse)}
 						/>
 
-						{currentSession && (
+						{(currentSession || isMetaAgentView) && (
 							<div className="mt-auto flex-shrink-0">
-								{hasPendingQuestion ? (
+								{currentSession && hasPendingQuestion ? (
 									<QuestionDialog
 										messages={messages}
 										onQuestionResponse={handleQuestionResponse}
@@ -339,8 +352,11 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 											onSubmit={onSubmit}
 											canSendMessage={canSendMessage}
 											currentSession={currentSession}
+											canStartSession={isMetaAgentView}
 											onUpdateSessionProviderOptions={
-												onUpdateSessionProviderOptions
+												currentSession
+													? onUpdateSessionProviderOptions
+													: undefined
 											}
 											isUploading={isUploading}
 											isStreaming={isStreaming}
@@ -357,6 +373,7 @@ export const ChatWorkspace = memo(function ChatWorkspaceComponent({
 											usedTokens={usedTokens}
 											maxTokens={maxTokens}
 											tokenUsage={tokenUsage}
+											latestAssistantText={latestAssistantText}
 										/>
 									</div>
 								)}

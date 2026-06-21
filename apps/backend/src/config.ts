@@ -14,30 +14,40 @@ export type BackendConfig = {
 	dataDir: string;
 };
 
+const providerCommand = (
+	envPrefix: string,
+	defaultCommand: string,
+	defaultArgsJson: string,
+): ProviderCommandConfig => ({
+	command: process.env[`AWM_${envPrefix}_COMMAND`] ?? defaultCommand,
+	args: JSON.parse(
+		process.env[`AWM_${envPrefix}_ARGS_JSON`] ?? defaultArgsJson,
+	),
+});
+
 export const defaultProviderCommands: Record<
 	ProviderId,
 	ProviderCommandConfig
 > = {
-	codex: {
-		command: process.env.AWM_CODEX_COMMAND ?? "codex",
-		args: JSON.parse(
-			process.env.AWM_CODEX_ARGS_JSON ??
-				'["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "$PROMPT"]',
-		),
-	},
-	claude: {
-		command: process.env.AWM_CLAUDE_COMMAND ?? "claude",
-		args: JSON.parse(
-			process.env.AWM_CLAUDE_ARGS_JSON ??
-				'["-p", "--dangerously-skip-permissions", "$PROMPT"]',
-		),
-	},
-	kimi: {
-		command: process.env.AWM_KIMI_COMMAND ?? "kimi",
-		args: JSON.parse(
-			process.env.AWM_KIMI_ARGS_JSON ?? '["--print", "--prompt", "$PROMPT"]',
-		),
-	},
+	codex: providerCommand(
+		"CODEX",
+		"codex",
+		'["exec", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "$PROMPT"]',
+	),
+	claude: providerCommand(
+		"CLAUDE",
+		"claude",
+		'["-p", "--dangerously-skip-permissions", "$PROMPT"]',
+	),
+	kimi: providerCommand("KIMI", "kimi", '["--print", "--prompt", "$PROMPT"]'),
+	antigravity: providerCommand("ANTIGRAVITY", "antigravity", '["$PROMPT"]'),
+	gemini: providerCommand("GEMINI", "gemini", '["--prompt", "$PROMPT"]'),
+	cursor: providerCommand("CURSOR", "cursor-agent", '["$PROMPT"]'),
+	opencode: providerCommand("OPENCODE", "opencode", '["run", "$PROMPT"]'),
+	pi: providerCommand("PI", "pi", '["$PROMPT"]'),
+	"oh-my-pi": providerCommand("OH_MY_PI", "oh-my-pi", '["$PROMPT"]'),
+	openclaw: providerCommand("OPENCLAW", "openclaw", '["$PROMPT"]'),
+	hermes: providerCommand("HERMES", "hermes", '["$PROMPT"]'),
 };
 
 export const loadBackendConfig = (): BackendConfig => ({
@@ -136,10 +146,8 @@ export const listProviders = (): ProviderInfo[] => {
 				? ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark"]
 				: provider === "claude"
 					? ["claude-sonnet-4-6", "claude-opus-4-6", "sonnet", "opus"]
-					: provider === "kimi"
-						? []
-						: [],
-		supportsModelSelection: true,
+					: [],
+		supportsModelSelection: provider === "codex" || provider === "claude",
 		supportsEffortSelection: provider === "claude" || provider === "codex",
 		supportsThinkingToggle: provider === "kimi" || provider === "codex",
 		effortOptions:

@@ -1,4 +1,15 @@
-export type ProviderId = "codex" | "claude" | "kimi";
+export type ProviderId =
+	| "codex"
+	| "claude"
+	| "kimi"
+	| "antigravity"
+	| "gemini"
+	| "cursor"
+	| "opencode"
+	| "pi"
+	| "oh-my-pi"
+	| "openclaw"
+	| "hermes";
 export type SessionState = "stopped" | "idle" | "busy" | "error";
 
 export enum ModelCapability {
@@ -38,6 +49,11 @@ export type BackendServerRecord = {
 	baseUrl: string;
 	authToken?: string;
 	createdAt: string;
+	lastSeenAt?: string;
+	host?: string;
+	agentVersion?: string;
+	discoveredProviders?: string[];
+	enrollment?: "manual" | "script";
 };
 
 export type ProviderInfo = {
@@ -181,6 +197,36 @@ export type AddServerRequest = {
 	name: string;
 	baseUrl: string;
 	authToken?: string;
+	host?: string;
+	agentVersion?: string;
+	discoveredProviders?: string[];
+	enrollment?: "manual" | "script";
+};
+
+export type GatewayEnrollmentInfo = {
+	token: string;
+	installCommand: string;
+	installScriptUrl: string;
+};
+
+export type ServerEnrollmentRequest = AddServerRequest & {
+	token: string;
+};
+
+export type SessionDiscoveryCandidate = {
+	provider: ProviderId;
+	nativeSessionId: string;
+	title: string;
+	workDir?: string | null;
+	sessionDir?: string | null;
+	lastUpdated: string;
+	source: string;
+};
+
+export type SessionDiscoveryImportResponse = {
+	discovered: number;
+	imported: number;
+	sessions: Session[];
 };
 
 export type PromptAttachment = {
@@ -197,6 +243,22 @@ export const providerLabel = (provider: ProviderId): string => {
 			return "Claude Code";
 		case "kimi":
 			return "Kimi CLI";
+		case "antigravity":
+			return "Antigravity";
+		case "gemini":
+			return "Gemini CLI";
+		case "cursor":
+			return "Cursor";
+		case "opencode":
+			return "OpenCode";
+		case "pi":
+			return "Pi";
+		case "oh-my-pi":
+			return "Oh My Pi";
+		case "openclaw":
+			return "OpenClaw";
+		case "hermes":
+			return "Hermes";
 	}
 };
 

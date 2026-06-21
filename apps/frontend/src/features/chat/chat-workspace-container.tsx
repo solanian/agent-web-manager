@@ -65,7 +65,9 @@ type ChatWorkspaceContainerProps = {
 	onGetSessionFileUrl?: (sessionId: string, path: string) => string;
 	onGetSessionFile?: (sessionId: string, path: string) => Promise<Blob>;
 	onOpenCreateDialog?: () => void;
+	onCreateSessionForMessage?: () => Promise<string | null>;
 	onOpenSidebar?: () => void;
+	sidebarToggleState?: "open" | "close";
 	generateTitle?: (sessionId: string) => Promise<string | null>;
 	onRenameSession?: (sessionId: string, newTitle: string) => Promise<boolean>;
 	onUpdateSessionProviderOptions?: (
@@ -79,6 +81,7 @@ type ChatWorkspaceContainerProps = {
 	onOpenNotification?: (notificationId: string, sessionId: string) => void;
 	onRemoveNotifications?: (notificationIds: string[]) => void;
 	onRequestBrowserNotifications?: () => void | Promise<void>;
+	onMissingSession?: (sessionId: string) => void;
 };
 
 export function ChatWorkspaceContainer({
@@ -92,7 +95,9 @@ export function ChatWorkspaceContainer({
 	onGetSessionFileUrl,
 	onGetSessionFile,
 	onOpenCreateDialog,
+	onCreateSessionForMessage,
 	onOpenSidebar,
+	sidebarToggleState,
 	generateTitle,
 	onRenameSession,
 	onUpdateSessionProviderOptions,
@@ -103,6 +108,7 @@ export function ChatWorkspaceContainer({
 	onOpenNotification,
 	onRemoveNotifications,
 	onRequestBrowserNotifications,
+	onMissingSession,
 }: ChatWorkspaceContainerProps): ReactElement {
 	const [isUploadingFiles, setIsUploadingFiles] = useState(false);
 	// Pending message state for when we need to create a session first
@@ -190,7 +196,10 @@ export function ChatWorkspaceContainer({
 
 	const mergedSlashCommands = useMemo(() => {
 		const byName = new Map<string, LocalSlashCommand>();
-		for (const command of [...providerSlashCommands, ...discoveredSlashCommands]) {
+		for (const command of [
+			...providerSlashCommands,
+			...discoveredSlashCommands,
+		]) {
 			byName.set(command.name, command);
 		}
 		return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -203,11 +212,21 @@ export function ChatWorkspaceContainer({
 		return model?.maxContextSize;
 	}, [config]);
 
-	const handleStreamError = useCallback((error: Error) => {
-		toast.error("Connection Error", {
-			description: error.message,
-		});
-	}, []);
+	const handleStreamError = useCallback(
+		(error: Error) => {
+			if (
+				selectedSessionId &&
+				error.message.toLowerCase().includes("session not found")
+			) {
+				onMissingSession?.(selectedSessionId);
+				return;
+			}
+			toast.error("Connection Error", {
+				description: error.message,
+			});
+		},
+		[onMissingSession, selectedSessionId],
+	);
 
 	// Handle first turn completion for auto-rename
 	// Backend reads messages from wire.jsonl automatically
@@ -516,8 +535,28 @@ export function ChatWorkspaceContainer({
 				return;
 			}
 
-			// Note: This check is defensive - the submit button is disabled when no session exists
+			const messageText =
+				message.text.trim() ||
+				(message.files.length > 0 ? "KIMI_FILE_UPLOAD_WITHOUT_MESSAGE" : "");
+
 			if (!selectedSessionId) {
+				const createdSessionId = await onCreateSessionForMessage?.();
+				if (!createdSessionId) {
+					toast.error("Unable to start Meta Agent chat", {
+						description:
+							"No backend server/provider is available for a new session.",
+					});
+					return;
+				}
+
+				if (message.files.length > 0) {
+					await uploadFilesToSession(createdSessionId, message.files);
+				}
+
+				setPendingMessage({
+					text: messageText,
+					targetSessionId: createdSessionId,
+				});
 				return;
 			}
 
@@ -534,10 +573,6 @@ export function ChatWorkspaceContainer({
 				await uploadFilesToSession(targetSessionId, message.files);
 			}
 
-			const messageText =
-				message.text.trim() ||
-				(message.files.length > 0 ? "KIMI_FILE_UPLOAD_WITHOUT_MESSAGE" : "");
-
 			await sendMessage(messageText);
 		},
 		[
@@ -548,6 +583,7 @@ export function ChatWorkspaceContainer({
 			sendMessage,
 			enqueue,
 			handleLocalSlashCommand,
+			onCreateSessionForMessage,
 		],
 	);
 
@@ -624,6 +660,7 @@ export function ChatWorkspaceContainer({
 			onGetSessionFileUrl={onGetSessionFileUrl}
 			onGetSessionFile={onGetSessionFile}
 			onOpenSidebar={onOpenSidebar}
+			sidebarToggleState={sidebarToggleState}
 			onRenameSession={onRenameSession}
 			onUpdateSessionProviderOptions={onUpdateSessionProviderOptions}
 			slashCommands={mergedSlashCommands}

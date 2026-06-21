@@ -240,16 +240,28 @@ export function useSessions(): UseSessionsReturn {
 				`/api/sessions/${encodeURIComponent(sessionId)}`,
 			);
 			const session = sessionFromApi(payload);
-			setSessions((current) =>
-				current.map((entry) =>
+			setSessions((current) => {
+				const existingIndex = current.findIndex(
+					(entry) => entry.sessionId === sessionId,
+				);
+				if (existingIndex === -1) {
+					return session.archived ? current : [session, ...current];
+				}
+				return current.map((entry) =>
 					entry.sessionId === sessionId ? session : entry,
-				),
-			);
-			setArchivedSessions((current) =>
-				current.map((entry) =>
+				);
+			});
+			setArchivedSessions((current) => {
+				const existingIndex = current.findIndex(
+					(entry) => entry.sessionId === sessionId,
+				);
+				if (existingIndex === -1) {
+					return session.archived ? [session, ...current] : current;
+				}
+				return current.map((entry) =>
 					entry.sessionId === sessionId ? session : entry,
-				),
-			);
+				);
+			});
 			return session;
 		} catch {
 			return null;

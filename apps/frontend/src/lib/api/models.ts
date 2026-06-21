@@ -1,5 +1,6 @@
 import {
 	type BackendServerRecord,
+	type GatewayEnrollmentInfo,
 	type GitDiffStats,
 	ModelCapability,
 	type ProviderId,
@@ -10,6 +11,7 @@ import {
 export { ModelCapability };
 export type {
 	BackendServerRecord,
+	GatewayEnrollmentInfo,
 	GitDiffStats,
 	ProviderId,
 	ProviderInfo,
